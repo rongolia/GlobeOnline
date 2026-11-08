@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(./**/*.bat)",
+      "Read(./**/*.cmd)",
+      "PowerShell(.\\*.bat*)",
+      "PowerShell(.\\*.cmd*)",
+      "PowerShell(./*.bat*)",
+      "PowerShell(./*.cmd*)",
+      "PowerShell(& *.bat*)",
+      "PowerShell(& *.cmd*)",
+      "PowerShell(cmd /c *.bat*)",
+      "PowerShell(cmd /c *.cmd*)",
+      "Bash(./*.bat*)",
+      "Bash(./*.cmd*)",
+      "Bash(cmd //c *.bat*)",
+      "Bash(cmd //c *.cmd*)",
+      "Bash(cmd.exe /c *.bat*)",
+      "Bash(cmd.exe /c *.cmd*)"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200">
+  <rect width="300" height="200" rx="8" fill="#1e293b"/>
+  <rect x="6" y="6" width="288" height="188" rx="5" fill="none" stroke="#475569" stroke-width="2" stroke-dasharray="10 8"/>
+  <path d="M120 70v60M120 72h52l-10 14 10 14h-52" fill="none" stroke="#94a3b8" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="150" y="165" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#94a3b8">Flag coming soon</text>
+</svg>

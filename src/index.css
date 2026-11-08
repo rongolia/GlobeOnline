@@ -1,1 +1,293 @@
 @import "tailwindcss";
+
+/* Centre-screen "DevFest happens here at …" message shown when a parachute lands. */
+@keyframes landing-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  20% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -58%) scale(1);
+  }
+}
+
+.landing-pop {
+  animation: landing-pop 2.4s ease-out forwards;
+}
+
+/* A miss, on top of the pop the wrapper is already running. Short and decaying, so it
+   reads as a knock rather than a wobble. */
+@keyframes landing-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  12% {
+    transform: translateX(-11px);
+  }
+  28% {
+    transform: translateX(9px);
+  }
+  44% {
+    transform: translateX(-6px);
+  }
+  60% {
+    transform: translateX(4px);
+  }
+  76% {
+    transform: translateX(-2px);
+  }
+}
+
+.landing-shake {
+  animation: landing-shake 520ms ease-out;
+}
+
+/* The verdict flash: colour pulled in from the edges of the frame, clear of the middle
+   so it never sits between the player and the globe. Opacity only, which is why it is
+   left running under reduced motion - there is no movement in it to object to. */
+@keyframes landing-flash {
+  0% {
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.landing-flash {
+  animation: landing-flash 900ms ease-out forwards;
+}
+
+.landing-flash-ok {
+  background: radial-gradient(ellipse at center, rgb(16 185 129 / 0) 42%, rgb(16 185 129 / 0.38) 100%);
+}
+
+.landing-flash-bad {
+  background: radial-gradient(ellipse at center, rgb(244 63 94 / 0) 42%, rgb(244 63 94 / 0.45) 100%);
+}
+
+/* Centre-screen 3-2-1 that opens a game. One cycle per number, so the duration is one
+   second to match the tick that replaces it. */
+@keyframes countdown-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  32% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+}
+
+.countdown-pop {
+  animation: countdown-pop 1s ease-out forwards;
+}
+
+/* The post-game verdict, which swaps as the globe turns and a new beacon country comes
+   under the crosshair. Short enough not to lag behind the turning, long enough that
+   scanning along a row of countries does not snap from one line to the next. */
+.verdict-in {
+  animation: verdict-in 0.22s ease-out both;
+}
+
+@keyframes verdict-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The opening briefing. Percentages rather than seconds, because the duration is set
+   inline from GAME_BRIEF_MS: the stage can be made longer or shorter in one place and
+   the fades stay in proportion to it. */
+.game-brief {
+  animation: game-brief 6.6s ease-out forwards;
+}
+
+/* Percentages are of the whole time the briefing is mounted - its own stage plus the
+   count-in - which is why the hold is so long a share of it. Scale only: the wrapper
+   around this element owns the centring and the rise to make room for the count. */
+@keyframes game-brief {
+  0% {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  6% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+  10% {
+    transform: scale(1);
+  }
+  94% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+/* A clue arriving: big text at the centre of the screen, held long enough to read, then
+   sent down to the bottom-left corner, shrinking and fading as it goes. It is not really
+   becoming the card - the card fades in underneath it on its own - but it lands on the
+   stack just as that happens, which is enough to read as one movement.
+
+   --clue-land is where the text is headed: the middle of the 20rem card column, a little
+   above the bottom edge. The element is anchored at the centre of the screen and centred
+   on itself by translate(-50%, -50%), so getting its centre to (X, Y) means adding
+   (X - 50vw) and (Y - 50vh) on top of that. */
+.clue-headline {
+  --clue-land-x: 11rem; /* 0.75rem inset + half of the 20rem column */
+  --clue-land-y: 5.5rem; /* up from the bottom edge, into the stack */
+  animation: clue-headline 2.4s ease-out forwards;
+}
+
+@keyframes clue-headline {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  10% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  18% {
+    transform: translate(-50%, -50%) scale(1);
+  }
+  /* Holds here to be read, then leaves - accelerating away rather than easing in, so it
+     reads as being sent somewhere rather than simply fading. */
+  78% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.75, 0.35);
+  }
+  92% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(
+        calc(-50% - 50vw + var(--clue-land-x)),
+        calc(-50% + 50vh - var(--clue-land-y))
+      )
+      scale(0.3);
+  }
+}
+
+/* Each clue card joins the stack as its headline fades. Only a newly mounted card runs
+   this, so the clues already on screen sit still while the new one arrives. */
+.clue-card-in {
+  opacity: 0;
+  animation: clue-card-in 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) 2.1s forwards;
+}
+
+@keyframes clue-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Anyone who would rather not have things moving gets the cards, without the headline
+   holding the centre of the screen first. */
+@media (prefers-reduced-motion: reduce) {
+  .clue-headline {
+    animation-duration: 0.01ms;
+  }
+
+  /* The briefing is the one exception: it has to stay up for as long as it is mounted,
+     so only the movement is dropped, by holding the resting state from the first frame.
+     Its rise above the count-in is a transition, switched off alongside this by
+     motion-reduce on the wrapper, so the text simply appears at each position. */
+  .game-brief {
+    animation-name: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .clue-card-in {
+    animation-delay: 0ms;
+    animation-duration: 0.01ms;
+  }
+
+  .verdict-in {
+    animation-duration: 0.01ms;
+  }
+
+  /* The shake is pure movement and carries nothing the badge and the flash do not
+     already say, so it is the one cue dropped outright. */
+  .landing-shake {
+    animation: none;
+  }
+}
+
+/* Country flag emoji. Noto Color Emoji is listed first so Windows picks up real flags
+   (see the font link in index.html); the platform fonts after it cover macOS, iOS and
+   Android, which have flags built in and will never fetch the webfont. line-height is
+   pinned because an emoji glyph otherwise sets a taller line box than the text it sits
+   beside, pushing the country name off centre. */
+.flag-emoji {
+  font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+  line-height: 1;
+}
+
+/* Difficulty buttons arriving when Start is pressed. Each button sets its own
+   animation-delay inline so the three rise in one after another. `backwards` holds the
+   start frame through that delay, otherwise a delayed button would flash at full size
+   before it begins. */
+@keyframes difficulty-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.45rem) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.difficulty-in {
+  animation: difficulty-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .difficulty-in {
+    animation: none;
+  }
+}
