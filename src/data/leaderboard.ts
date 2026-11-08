@@ -1,59 +1,52 @@
 /**
- * The leaderboard dataset: one record per finished game, holding only what the server
- * needs - the player's three-letter name and their score.
- *
- * There is no server yet, so records are kept in this browser's localStorage, highest
- * score first, ready to go. When there is an endpoint, sending them is:
- *
- *   await fetch(url, {
- *     method: 'POST',
- *     headers: { 'Content-Type': 'application/json' },
- *     body: getScoreDatasetJson(),
- *   });
- *   clearScoreDataset();
- *
- * The body is a JSON array of { "name": "ABC", "score": 42 }.
- *
- * Storage can be unavailable (private windows, blocked site data). Every access is
- * guarded, and a record that cannot be kept is simply dropped rather than getting in
- * the way of the game.
+ * Leaderboard dataset connected to Firebase Firestore.
+ * Maintains the highest 10 records in the database.
  */
 
-/** Names are arcade-style initials: exactly this many letters, A-Z. */
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  query,
+  orderBy,
+  limit,
+  onSnapshot,
+  serverTimestamp,
+} from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+
+/** Names are arcade-style initials: exactly 3 letters, A-Z. */
 export const NAME_LENGTH = 3;
 
-/** One leaderboard record, exactly as the server receives it. */
+/** Maximum number of records kept in the database. */
+export const MAX_LEADERBOARD_RECORDS = 10;
+
 export interface ScoreRecord {
-  /** Three capital letters, A-Z. */
+  id?: string;
   name: string;
-  /** Whole points, zero or more. */
   score: number;
+  createdAt?: string | number | null;
 }
 
 const STORAGE_KEY = 'globe-online:leaderboard';
 const NAME_PATTERN = new RegExp(`^[A-Z]{${NAME_LENGTH}}$`);
 
-/** Typed text -> a valid name in progress: capitals only, A-Z, at most NAME_LENGTH. */
+/** Cleans user input to uppercase 3 letters max */
 export function cleanName(input: string): string {
   return input.toUpperCase().replace(/[^A-Z]/g, '').slice(0, NAME_LENGTH);
 }
 
-/**
- * Builds a record, or returns null if it would not be valid to send. Anything extra a
- * caller has is deliberately left out: the record is the name and the score, nothing else.
- */
-export function toScoreRecord(name: string, score: number): ScoreRecord | null {
+/** Validates and formats a score record */
+export function toScoreRecord(name: string, score: number, id?: string): ScoreRecord | null {
   if (!NAME_PATTERN.test(name)) return null;
   if (!Number.isInteger(score) || score < 0) return null;
-  return { name, score };
+  return { id, name, score };
 }
 
-/**
- * Every record kept so far, highest score first. Reading also cleans the data: any stored
- * entry that is not a valid record is skipped, and extra fields (older builds stored the
- * difficulty and a date too) are stripped, so what comes back is always safe to send.
- */
-export function getScoreDataset(): ScoreRecord[] {
+/** Local storage backup helper */
+export function getLocalScores(): ScoreRecord[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : [];
@@ -61,35 +54,174 @@ export function getScoreDataset(): ScoreRecord[] {
     return parsed
       .map((e) => (e && typeof e === 'object' ? toScoreRecord((e as ScoreRecord).name, (e as ScoreRecord).score) : null))
       .filter((r): r is ScoreRecord => r !== null)
-      .sort((a, b) => b.score - a.score);
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_LEADERBOARD_RECORDS);
   } catch {
     return [];
   }
 }
 
-/** The dataset as the JSON request body for the server. */
-export function getScoreDatasetJson(): string {
-  return JSON.stringify(getScoreDataset());
-}
-
-/** Adds a finished game. Returns false if the record was invalid or could not be kept. */
-export function addScore(name: string, score: number): boolean {
-  const record = toScoreRecord(name, score);
-  if (!record) return false;
+/** Saves backup copy to local storage */
+function saveLocalScore(name: string, score: number): void {
   try {
-    const records = [...getScoreDataset(), record].sort((a, b) => b.score - a.score);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-    return true;
+    const record = toScoreRecord(name, score);
+    if (!record) return;
+    const current = getLocalScores();
+    const updated = [...current, record].sort((a, b) => b.score - a.score).slice(0, MAX_LEADERBOARD_RECORDS);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   } catch {
-    return false;
+    // Ignore storage issues
   }
 }
 
-/** Empties the dataset, e.g. once it has been sent. */
+/**
+ * Subscribes to real-time top 10 leaderboard changes from Firestore.
+ * Automatically falls back to local storage if Firestore connection is unavailable.
+ */
+export function subscribeTopScores(
+  onUpdate: (scores: ScoreRecord[]) => void,
+  onError?: (error: Error) => void
+): () => void {
+  try {
+    const scoresRef = collection(db, 'scores');
+    const q = query(scoresRef, orderBy('score', 'desc'), limit(MAX_LEADERBOARD_RECORDS));
+
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const scores: ScoreRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data();
+          const record = toScoreRecord(data.name, data.score, docSnap.id);
+          if (record) {
+            scores.push({
+              ...record,
+              createdAt: data.createdAt?.toMillis?.() || Date.now(),
+            });
+          }
+        });
+        onUpdate(scores);
+      },
+      (error) => {
+        console.warn('Real-time leaderboard listener error, falling back to local cache:', error);
+        if (onError) onError(error);
+        onUpdate(getLocalScores());
+      }
+    );
+  } catch (err) {
+    console.warn('Could not initialize snapshot listener:', err);
+    onUpdate(getLocalScores());
+    return () => {};
+  }
+}
+
+/**
+ * Fetches the current top 10 scores from Firestore.
+ */
+export async function getTopScores(): Promise<ScoreRecord[]> {
+  try {
+    const scoresRef = collection(db, 'scores');
+    const q = query(scoresRef, orderBy('score', 'desc'), limit(MAX_LEADERBOARD_RECORDS));
+    const snapshot = await getDocs(q);
+    const scores: ScoreRecord[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      const record = toScoreRecord(data.name, data.score, docSnap.id);
+      if (record) {
+        scores.push({
+          ...record,
+          createdAt: data.createdAt?.toMillis?.() || null,
+        });
+      }
+    });
+    return scores;
+  } catch (error) {
+    console.warn('Failed to fetch from Firestore, falling back to local scores:', error);
+    return getLocalScores();
+  }
+}
+
+/**
+ * Sends the name and score to the database and updates it.
+ * Enforces that the database ONLY keeps the highest 10 records by pruning any
+ * documents beyond the 10th highest.
+ */
+export async function saveScoreToFirestore(
+  name: string,
+  score: number
+): Promise<{ success: boolean; rank?: number; isTop10?: boolean; error?: string }> {
+  const clean = cleanName(name);
+  const validated = toScoreRecord(clean, score);
+  if (!validated) {
+    return { success: false, error: 'Invalid name or score format' };
+  }
+
+  // Always keep local storage backup
+  saveLocalScore(clean, score);
+
+  try {
+    const scoresRef = collection(db, 'scores');
+
+    // 1. Add the new score record to Firestore
+    await addDoc(scoresRef, {
+      name: clean,
+      score,
+      createdAt: serverTimestamp(),
+    });
+
+    // 2. Fetch all scores ordered by score descending to prune anything beyond the top 10
+    const allQuery = query(scoresRef, orderBy('score', 'desc'));
+    const allDocsSnap = await getDocs(allQuery);
+
+    let rank = 1;
+    let foundRank = false;
+
+    // Prune excess records so the database ONLY stores the highest 10
+    if (allDocsSnap.docs.length > MAX_LEADERBOARD_RECORDS) {
+      const docsToDelete = allDocsSnap.docs.slice(MAX_LEADERBOARD_RECORDS);
+      await Promise.all(
+        docsToDelete.map((docItem) => deleteDoc(doc(db, 'scores', docItem.id)))
+      );
+    }
+
+    // Determine the rank of the current score in the updated list
+    for (let i = 0; i < Math.min(allDocsSnap.docs.length, MAX_LEADERBOARD_RECORDS); i++) {
+      const data = allDocsSnap.docs[i].data();
+      if (!foundRank && data.name === clean && data.score === score) {
+        rank = i + 1;
+        foundRank = true;
+      }
+    }
+
+    return {
+      success: true,
+      rank: foundRank ? rank : undefined,
+      isTop10: rank <= MAX_LEADERBOARD_RECORDS,
+    };
+  } catch (error) {
+    console.error('Error saving score to Firestore:', error);
+    try {
+      handleFirestoreError(error, OperationType.CREATE, 'scores');
+    } catch {
+      // Return structured response
+    }
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Database error',
+    };
+  }
+}
+
+/** Backwards-compatible synchronous addScore */
+export function addScore(name: string, score: number): boolean {
+  saveLocalScore(name, score);
+  // Fire and forget save to Firestore
+  saveScoreToFirestore(name, score).catch((e) => console.error('Background save failed:', e));
+  return true;
+}
+
 export function clearScoreDataset(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    // Nothing stored, or nothing reachable: either way there is nothing to clear.
-  }
+  } catch {}
 }

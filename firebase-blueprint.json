@@ -1,0 +1,30 @@
+{
+  "entities": {
+    "scores": {
+      "title": "Leaderboard Score",
+      "description": "High score entry on the global leaderboard, maintaining the top 10 highest records",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Three uppercase letters representing player initials (A-Z)"
+        },
+        "score": {
+          "type": "number",
+          "description": "Total game score points earned"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the score was recorded"
+        }
+      },
+      "required": ["name", "score", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/scores/{scoreId}": {
+      "entity": "scores",
+      "description": "Global leaderboard scores collection, capped to top 10 records"
+    }
+  }
+}

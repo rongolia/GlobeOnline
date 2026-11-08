@@ -7,10 +7,12 @@ import {
   FIND_MESSAGE_MS,
   GAME_BRIEF_VISIBLE_MS,
 } from '../scene/EarthScene';
+import { Trophy } from 'lucide-react';
 import { CountryInfo } from '../utils/geo';
 import { getCountryDescription, COUNTRY_GROUPS, DIFFICULTIES } from '../data/countries';
 import type { Difficulty } from '../data/countries';
-import { NAME_LENGTH, addScore, cleanName } from '../data/leaderboard';
+import { NAME_LENGTH, saveScoreToFirestore, cleanName } from '../data/leaderboard';
+import { LeaderboardModal } from './LeaderboardModal';
 
 // Every panel hugs its corner at inset-3 (0.75rem). The inset is written out per corner
 // rather than shared as a margin, because a margin would fight the -translate-x-1/2 that
@@ -222,6 +224,10 @@ export const EarthGlobe: React.FC = () => {
   // skipped). Both start over with every game.
   const [playerName, setPlayerName] = useState('');
   const [nameEntered, setNameEntered] = useState(false);
+  const [isSavingScore, setIsSavingScore] = useState(false);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [leaderboardStatus, setLeaderboardStatus] = useState<string | null>(null);
+  const [recentSaved, setRecentSaved] = useState<{ name: string; score: number } | null>(null);
 
   // Start pressed: the panel is showing the difficulty choices rather than Start.
   const [choosingDifficulty, setChoosingDifficulty] = useState(false);
@@ -432,13 +438,27 @@ export const EarthGlobe: React.FC = () => {
           </div>
 
           {game.phase === 'learn' ? (
-            <button
-              type="button"
-              onClick={restart}
-              className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer`}
-            >
-              Restart
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={restart}
+                className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer`}
+              >
+                Restart
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLeaderboardStatus(null);
+                  setShowLeaderboard(true);
+                }}
+                className={`${PANEL_PILL} ${SURFACE_DARK} hover:bg-slate-800 active:scale-95 transition duration-200 text-amber-300 cursor-pointer flex items-center gap-1.5`}
+                title="View Top 10 Leaderboard"
+              >
+                <Trophy className="w-4 h-4 text-amber-300" />
+                <span>Top 10</span>
+              </button>
+            </div>
           ) : choosingDifficulty ? (
             <div className="flex items-center space-x-2">
               {DIFFICULTY_OPTIONS.filter((d) => d.offered).map((d, i) => (
@@ -457,13 +477,27 @@ export const EarthGlobe: React.FC = () => {
               ))}
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={() => setChoosingDifficulty(true)}
-              className={`${PANEL_PILL} bg-sky-400/90 border-transparent hover:bg-sky-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer`}
-            >
-              Start
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setChoosingDifficulty(true)}
+                className={`${PANEL_PILL} bg-sky-400/90 border-transparent hover:bg-sky-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer`}
+              >
+                Start
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLeaderboardStatus(null);
+                  setShowLeaderboard(true);
+                }}
+                className={`${PANEL_PILL} ${SURFACE_DARK} hover:bg-slate-800 active:scale-95 transition duration-200 text-amber-300 cursor-pointer flex items-center gap-1.5`}
+                title="View Top 10 Leaderboard"
+              >
+                <Trophy className="w-4 h-4 text-amber-300" />
+                <span>Top 10</span>
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -684,11 +718,27 @@ export const EarthGlobe: React.FC = () => {
           {!nameEntered && (
             <form
               className="mt-6 flex flex-col items-center gap-3"
-              onSubmit={(e) => {
+              onSubmit={async (e) => {
                 e.preventDefault();
-                if (playerName.length !== NAME_LENGTH) return;
-                addScore(playerName, game.score);
-                setNameEntered(true);
+                if (playerName.length !== NAME_LENGTH || isSavingScore) return;
+                setIsSavingScore(true);
+                try {
+                  const res = await saveScoreToFirestore(playerName, game.score);
+                  setRecentSaved({ name: playerName, score: game.score });
+                  if (res.success) {
+                    if (res.rank) {
+                      setLeaderboardStatus(`🎉 Record saved! Rank #${res.rank} in Top 10!`);
+                    } else {
+                      setLeaderboardStatus('Record saved to global database!');
+                    }
+                  } else {
+                    setLeaderboardStatus(res.error || 'Saved to local backup');
+                  }
+                  setNameEntered(true);
+                  setShowLeaderboard(true);
+                } finally {
+                  setIsSavingScore(false);
+                }
               }}
             >
               <label
@@ -714,10 +764,17 @@ export const EarthGlobe: React.FC = () => {
                 />
                 <button
                   type="submit"
-                  disabled={playerName.length !== NAME_LENGTH}
-                  className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-400/90 disabled:active:scale-100`}
+                  disabled={playerName.length !== NAME_LENGTH || isSavingScore}
+                  className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-400/90 disabled:active:scale-100 flex items-center gap-2`}
                 >
-                  Save
+                  {isSavingScore ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    'Save'
+                  )}
                 </button>
               </div>
               <button
@@ -739,8 +796,8 @@ export const EarthGlobe: React.FC = () => {
       {game.active && (game.phase !== 'learn' || nameEntered) && (
         <div
           key={game.phase === 'learn' ? 'score-final' : 'score'}
-          className={`absolute top-3 right-3 flex flex-col items-end pointer-events-none ${
-            game.phase === 'learn' ? 'score-final-in' : ''
+          className={`absolute top-3 right-3 flex flex-col items-end ${
+            game.phase === 'learn' ? 'score-final-in' : 'pointer-events-none'
           }`}
         >
           <div className={PANEL_LABEL}>{game.phase === 'learn' ? 'Final score' : 'Score'}</div>
@@ -749,6 +806,19 @@ export const EarthGlobe: React.FC = () => {
           >
             {game.score}
           </div>
+          {game.phase === 'learn' && nameEntered && (
+            <button
+              type="button"
+              onClick={() => {
+                setLeaderboardStatus(null);
+                setShowLeaderboard(true);
+              }}
+              className={`mt-2 ${PANEL_PILL} ${SURFACE_DARK} hover:bg-slate-800 active:scale-95 transition duration-200 text-amber-300 cursor-pointer flex items-center gap-1.5`}
+            >
+              <Trophy className="w-4 h-4 text-amber-300" />
+              <span>Leaderboard</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -891,6 +961,15 @@ export const EarthGlobe: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Top 10 Hall of Fame Leaderboard Modal */}
+      <LeaderboardModal
+        isOpen={showLeaderboard}
+        onClose={() => setShowLeaderboard(false)}
+        recentPlayerName={recentSaved?.name}
+        recentScore={recentSaved?.score}
+        statusMessage={leaderboardStatus}
+      />
     </div>
   );
 };
