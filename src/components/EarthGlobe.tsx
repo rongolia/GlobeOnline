@@ -404,7 +404,7 @@ export const EarthGlobe: React.FC = () => {
 
   return (
     <div
-      className="relative w-screen h-screen overflow-hidden bg-[#0a0e17] select-none touch-none"
+      className="relative w-screen h-dvh overflow-hidden bg-[#0a0e17] select-none touch-none"
       onPointerDown={() => setIsInteracting(true)}
       onPointerUp={() => setIsInteracting(false)}
       onPointerLeave={() => setIsInteracting(false)}
@@ -558,7 +558,7 @@ export const EarthGlobe: React.FC = () => {
           {/* Laid out like the pre-game stack: flag and name share the box on top, then
               the facts best-known first. Cards already on screen are left mounted, so only
               a newly uncovered one animates in. */}
-          <div className="absolute bottom-3 left-3 w-96 max-h-[calc(100vh-7rem)] flex flex-col justify-end gap-1.5 overflow-hidden pointer-events-none">
+          <div className="absolute bottom-3 left-3 w-96 max-h-[calc(100dvh-7rem)] flex flex-col justify-end gap-1.5 overflow-hidden pointer-events-none">
             {flagShown && easyInfo && (
               <div key={`clue-id:${game.target.name}`} className="clue-card-in">
                 <InfoCard color={game.target.color}>
@@ -616,7 +616,7 @@ export const EarthGlobe: React.FC = () => {
           className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-1/2 transition-[left,top] duration-150 ease-out"
           style={{
             left: `calc(50% + ${Math.cos(targetOffscreen) * 40}vw)`,
-            top: `calc(50% - ${Math.sin(targetOffscreen) * 38}vh)`,
+            top: `calc(50% - ${Math.sin(targetOffscreen) * 38}dvh)`,
           }}
           role="status"
           aria-label="The country is round the side of the globe"

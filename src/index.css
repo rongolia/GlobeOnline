@@ -180,7 +180,8 @@
    --clue-land is where the text is headed: the middle of the 20rem card column, a little
    above the bottom edge. The element is anchored at the centre of the screen and centred
    on itself by translate(-50%, -50%), so getting its centre to (X, Y) means adding
-   (X - 50vw) and (Y - 50vh) on top of that. */
+   (X - 50vw) and (Y - 50dvh) on top of that. dvh rather than vh throughout: on iPad Safari vh is the
+   height with the toolbars hidden, which runs past the bottom of the visible page. */
 .clue-headline {
   --clue-land-x: 11rem; /* 0.75rem inset + half of the 20rem column */
   --clue-land-y: 5.5rem; /* up from the bottom edge, into the stack */
@@ -218,7 +219,7 @@
 /* The bottom-left stack, as an offset from the screen centre the headline starts at. */
 .clue-headline {
   --land-dx: calc(var(--clue-land-x) - 50vw);
-  --land-dy: calc(50vh - var(--clue-land-y));
+  --land-dy: calc(50dvh - var(--clue-land-y));
 }
 
 /* End of the game: the final score takes the centre the same way a clue does, then is
@@ -227,7 +228,7 @@
    box: 0.75rem inset, plus the 2.5rem label, plus half the 3.5rem box. */
 .score-headline {
   --land-dx: calc(50vw - 3.5rem);
-  --land-dy: calc(-50vh + 5rem);
+  --land-dy: calc(-50dvh + 5rem);
   --land-scale: 0.35;
 }
 
