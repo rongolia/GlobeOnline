@@ -7,24 +7,18 @@ import {
   FIND_MESSAGE_MS,
   GAME_BRIEF_VISIBLE_MS,
 } from '../scene/EarthScene';
-import { Trophy } from 'lucide-react';
 import { CountryInfo } from '../utils/geo';
 import { getCountryDescription, COUNTRY_GROUPS, DIFFICULTIES } from '../data/countries';
 import type { Difficulty } from '../data/countries';
 import { NAME_LENGTH, saveScoreToFirestore, cleanName } from '../data/leaderboard';
-import { LeaderboardModal } from './LeaderboardModal';
+import { Leaderboard, LeaderboardButton } from './Leaderboard';
+import type { LeaderboardStatus, YourScore } from './Leaderboard';
+import { SURFACE_DARK, PANEL_LABEL, PANEL_FIELD, PANEL_PILL, PILL_START, PILL_PRIMARY, PILL_PRIMARY_DISABLABLE } from './ui';
 
 // Every panel hugs its corner at inset-3 (0.75rem). The inset is written out per corner
 // rather than shared as a margin, because a margin would fight the -translate-x-1/2 that
-// centres the country box.
-//
-// One surface for every piece of UI, so the panel, the cards and the tooltip all read as
-// the same system. SURFACE carries the shape; SURFACE_DARK adds the dark fill, while
-// accent controls take SURFACE and bring their own background and border colour.
-// Trying the UI flat: put `shadow-xl shadow-black/40` back here to restore the lift
-// under every panel, card, pill and tooltip at once.
-const SURFACE = 'rounded-xl border backdrop-blur-md';
-const SURFACE_DARK = `${SURFACE} bg-slate-900/85 border-slate-700/70`;
+// centres the country box. The surfaces, captions and pills themselves are shared with
+// the leaderboard and live in ./ui.ts.
 
 // The modes, in the order they are shown after Start. Each plays its own group plus every
 // easier one, so the pool grows as the clues get harder.
@@ -82,19 +76,6 @@ const DIFFICULTY_OPTIONS: {
   },
 ];
 
-// Caption above a control: the all-caps instruction text ("Chances left", "Ready to
-// play?"). Set to read at the same size as the values underneath rather
-// than shrinking away from them - it is what tells the player what to do.
-const PANEL_LABEL = 'mb-2 text-2xl uppercase tracking-widest font-semibold text-slate-200';
-// Read-only field: the country box.
-const PANEL_FIELD = `${SURFACE_DARK} w-64 h-12 px-4 flex items-center space-x-2 text-base text-slate-100`;
-// Control: Start, Restart, the round counter. Colours come from the caller, and which
-// set it uses is what tells the three kinds of pill apart at a glance:
-//   solid fill + dark text -> a live action (Start, Restart, an available difficulty)
-//   dark fill + outline    -> not an action (the round counter, a difficulty that is not
-//                             wired up yet)
-// Anything clickable takes the solid treatment, or it reads as disabled.
-const PANEL_PILL = `${SURFACE} w-32 h-14 flex items-center justify-center text-base font-semibold uppercase tracking-widest`;
 
 /** One card in the info stack: colour strip + content. All cards share this look. */
 /**
@@ -225,9 +206,16 @@ export const EarthGlobe: React.FC = () => {
   const [playerName, setPlayerName] = useState('');
   const [nameEntered, setNameEntered] = useState(false);
   const [isSavingScore, setIsSavingScore] = useState(false);
+  // Before a game: whether the Top 10 button has slid the board in. After a game the
+  // board is simply part of the final score, so this only matters on the start screen.
   const [showLeaderboard, setShowLeaderboard] = useState(false);
-  const [leaderboardStatus, setLeaderboardStatus] = useState<string | null>(null);
-  const [recentSaved, setRecentSaved] = useState<{ name: string; score: number } | null>(null);
+  // How the last save went, shown above the board after a game.
+  const [leaderboardStatus, setLeaderboardStatus] = useState<LeaderboardStatus | null>(null);
+  // The score just saved, so the leaderboard can mark it out - by its document id, since
+  // name and score alone can match an older entry - or show it under the ten if it did
+  // not make them.
+  const [recentSaved, setRecentSaved] = useState<YourScore | null>(null);
+  const toggleLeaderboard = () => setShowLeaderboard((open) => !open);
 
   // Start pressed: the panel is showing the difficulty choices rather than Start.
   const [choosingDifficulty, setChoosingDifficulty] = useState(false);
@@ -391,6 +379,10 @@ export const EarthGlobe: React.FC = () => {
     if (game.phase !== 'rounds') return;
     setPlayerName('');
     setNameEntered(false);
+    // ...and the board: put away, with nothing left over from the last game's save.
+    setShowLeaderboard(false);
+    setLeaderboardStatus(null);
+    setRecentSaved(null);
   }, [game.phase]);
 
   // Info cards: before game -> hovered country; post-game -> country under the screen
@@ -438,27 +430,9 @@ export const EarthGlobe: React.FC = () => {
           </div>
 
           {game.phase === 'learn' ? (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={restart}
-                className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer`}
-              >
-                Restart
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLeaderboardStatus(null);
-                  setShowLeaderboard(true);
-                }}
-                className={`${PANEL_PILL} ${SURFACE_DARK} hover:bg-slate-800 active:scale-95 transition duration-200 text-amber-300 cursor-pointer flex items-center gap-1.5`}
-                title="View Top 10 Leaderboard"
-              >
-                <Trophy className="w-4 h-4 text-amber-300" />
-                <span>Top 10</span>
-              </button>
-            </div>
+            <button type="button" onClick={restart} className={PILL_PRIMARY}>
+              Restart
+            </button>
           ) : choosingDifficulty ? (
             <div className="flex items-center space-x-2">
               {DIFFICULTY_OPTIONS.filter((d) => d.offered).map((d, i) => (
@@ -478,25 +452,10 @@ export const EarthGlobe: React.FC = () => {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setChoosingDifficulty(true)}
-                className={`${PANEL_PILL} bg-sky-400/90 border-transparent hover:bg-sky-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer`}
-              >
+              <button type="button" onClick={() => setChoosingDifficulty(true)} className={PILL_START}>
                 Start
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setLeaderboardStatus(null);
-                  setShowLeaderboard(true);
-                }}
-                className={`${PANEL_PILL} ${SURFACE_DARK} hover:bg-slate-800 active:scale-95 transition duration-200 text-amber-300 cursor-pointer flex items-center gap-1.5`}
-                title="View Top 10 Leaderboard"
-              >
-                <Trophy className="w-4 h-4 text-amber-300" />
-                <span>Top 10</span>
-              </button>
+              <LeaderboardButton onClick={toggleLeaderboard} open={showLeaderboard} />
             </div>
           )}
         </div>
@@ -724,18 +683,15 @@ export const EarthGlobe: React.FC = () => {
                 setIsSavingScore(true);
                 try {
                   const res = await saveScoreToFirestore(playerName, game.score);
-                  setRecentSaved({ name: playerName, score: game.score });
-                  if (res.success) {
-                    if (res.rank) {
-                      setLeaderboardStatus(`🎉 Record saved! Rank #${res.rank} in Top 10!`);
-                    } else {
-                      setLeaderboardStatus('Record saved to global database!');
-                    }
-                  } else {
-                    setLeaderboardStatus(res.error || 'Saved to local backup');
-                  }
+                  setRecentSaved({ id: res.id, name: playerName, score: game.score, position: res.position });
+                  setLeaderboardStatus(
+                    !res.success
+                      ? { ok: false, text: 'Couldn’t reach the leaderboard. Your score is kept on this device.' }
+                      : res.rank
+                        ? { ok: true, text: `Saved. You’re #${res.rank} on the board.` }
+                        : { ok: true, text: res.position ? `Saved. You’re #${res.position} overall.` : 'Saved. Not in the top 10 this time.' }
+                  );
                   setNameEntered(true);
-                  setShowLeaderboard(true);
                 } finally {
                   setIsSavingScore(false);
                 }
@@ -765,16 +721,9 @@ export const EarthGlobe: React.FC = () => {
                 <button
                   type="submit"
                   disabled={playerName.length !== NAME_LENGTH || isSavingScore}
-                  className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-400/90 disabled:active:scale-100 flex items-center gap-2`}
+                  className={PILL_PRIMARY_DISABLABLE}
                 >
-                  {isSavingScore ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    'Save'
-                  )}
+                  {isSavingScore ? 'Saving…' : 'Save'}
                 </button>
               </div>
               <button
@@ -792,12 +741,13 @@ export const EarthGlobe: React.FC = () => {
       {/* Score, top right. It stays up in the post-game scene as the final score, and is
           remounted then (the key) so it can fade back in as the headline above lands.
           After a game it waits for the name to be entered, since that is what sends the
-          headline its way. */}
+          headline its way - and the Top 10 comes in with it, stacked underneath, so the
+          final score and where it stands are read together. */}
       {game.active && (game.phase !== 'learn' || nameEntered) && (
         <div
           key={game.phase === 'learn' ? 'score-final' : 'score'}
-          className={`absolute top-3 right-3 flex flex-col items-end ${
-            game.phase === 'learn' ? 'score-final-in' : 'pointer-events-none'
+          className={`absolute top-3 right-3 flex flex-col items-end pointer-events-none ${
+            game.phase === 'learn' ? 'score-final-in' : ''
           }`}
         >
           <div className={PANEL_LABEL}>{game.phase === 'learn' ? 'Final score' : 'Score'}</div>
@@ -806,19 +756,26 @@ export const EarthGlobe: React.FC = () => {
           >
             {game.score}
           </div>
-          {game.phase === 'learn' && nameEntered && (
-            <button
-              type="button"
-              onClick={() => {
-                setLeaderboardStatus(null);
-                setShowLeaderboard(true);
-              }}
-              className={`mt-2 ${PANEL_PILL} ${SURFACE_DARK} hover:bg-slate-800 active:scale-95 transition duration-200 text-amber-300 cursor-pointer flex items-center gap-1.5`}
-            >
-              <Trophy className="w-4 h-4 text-amber-300" />
-              <span>Leaderboard</span>
-            </button>
+          {game.phase === 'learn' && (
+            <div className="mt-5">
+              <Leaderboard active you={recentSaved} status={leaderboardStatus} />
+            </div>
           )}
+        </div>
+      )}
+
+      {/* Before a game: the same board in the same corner, slid in and out by the Top 10
+          button. It stays mounted while away, parked off the right edge, so it can slide
+          out as well as in, and is inert then. */}
+      {!game.active && (
+        <div
+          aria-hidden={!showLeaderboard}
+          inert={!showLeaderboard}
+          className={`absolute top-3 right-3 pointer-events-none transition-transform duration-300 ease-out motion-reduce:transition-none ${
+            showLeaderboard ? 'translate-x-0' : 'translate-x-[calc(100%+1rem)]'
+          }`}
+        >
+          <Leaderboard active={showLeaderboard} />
         </div>
       )}
 
@@ -961,15 +918,6 @@ export const EarthGlobe: React.FC = () => {
           </div>
         </div>
       )}
-
-      {/* Top 10 Hall of Fame Leaderboard Modal */}
-      <LeaderboardModal
-        isOpen={showLeaderboard}
-        onClose={() => setShowLeaderboard(false)}
-        recentPlayerName={recentSaved?.name}
-        recentScore={recentSaved?.score}
-        statusMessage={leaderboardStatus}
-      />
     </div>
   );
 };

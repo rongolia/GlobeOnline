@@ -1,15 +1,19 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // The leaderboard. Anyone can read it and add a score; nobody can change or remove
+    // one from the client. The game shows the top 10 by query, so nothing ever needs to
+    // be deleted from the browser - and a browser that may delete scores is a browser
+    // anyone can use to wipe the board.
     match /scores/{scoreId} {
       allow read: if true;
-      allow create: if request.resource.data.name is string
-                    && request.resource.data.name.size() == 3
+      allow create: if request.resource.data.keys().hasOnly(['name', 'score', 'createdAt'])
+                    && request.resource.data.name is string
                     && request.resource.data.name.matches('^[A-Z]{3}$')
-                    && request.resource.data.score is number
-                    && request.resource.data.score >= 0;
-      allow update: if false;
-      allow delete: if true;
+                    && request.resource.data.score is int
+                    && request.resource.data.score >= 0
+                    && request.resource.data.createdAt == request.time;
+      allow update, delete: if false;
     }
   }
 }

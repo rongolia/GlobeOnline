@@ -1,21 +1,21 @@
 /**
  * Leaderboard dataset connected to Firebase Firestore.
- * Maintains the highest 10 records in the database.
+ * Every score is stored; the leaderboard shows the highest 10 of them.
  */
 
 import {
   collection,
   addDoc,
   getDocs,
-  deleteDoc,
-  doc,
+  getCountFromServer,
+  where,
   query,
   orderBy,
   limit,
   onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../firebase';
+import { db } from '../firebase';
 
 /** Names are arcade-style initials: exactly 3 letters, A-Z. */
 export const NAME_LENGTH = 3;
@@ -142,14 +142,26 @@ export async function getTopScores(): Promise<ScoreRecord[]> {
 }
 
 /**
- * Sends the name and score to the database and updates it.
- * Enforces that the database ONLY keeps the highest 10 records by pruning any
- * documents beyond the 10th highest.
+ * Sends the name and score to the database.
+ *
+ * Every score is kept; "top 10" is a query (orderBy score, limit 10), not a cap on the
+ * collection. Trimming from the browser would need clients to be allowed to delete
+ * scores, and anything a browser may do, anyone may do - so the rules forbid deletes
+ * and nothing here attempts one.
+ *
+ * `rank` is the new score's place in the top 10, found by its own document id - not by
+ * matching name and score, which would pick out an older identical entry instead.
+ * Undefined when it did not make the top 10. `id` is the new score's document id.
+ *
+ * `position` is where the score stands overall, top 10 or not: one more than the number
+ * of scores strictly above it, so a tie shares the better place. It is a count query, so
+ * it costs one read however long the board gets. Undefined if that count could not be
+ * made - the score is saved either way.
  */
 export async function saveScoreToFirestore(
   name: string,
   score: number
-): Promise<{ success: boolean; rank?: number; isTop10?: boolean; error?: string }> {
+): Promise<{ success: boolean; id?: string; rank?: number; position?: number; isTop10?: boolean; error?: string }> {
   const clean = cleanName(name);
   const validated = toScoreRecord(clean, score);
   if (!validated) {
@@ -161,63 +173,41 @@ export async function saveScoreToFirestore(
 
   try {
     const scoresRef = collection(db, 'scores');
-
-    // 1. Add the new score record to Firestore
-    await addDoc(scoresRef, {
+    const added = await addDoc(scoresRef, {
       name: clean,
       score,
       createdAt: serverTimestamp(),
     });
 
-    // 2. Fetch all scores ordered by score descending to prune anything beyond the top 10
-    const allQuery = query(scoresRef, orderBy('score', 'desc'));
-    const allDocsSnap = await getDocs(allQuery);
+    const top = await getDocs(query(scoresRef, orderBy('score', 'desc'), limit(MAX_LEADERBOARD_RECORDS)));
+    const index = top.docs.findIndex((d) => d.id === added.id);
 
-    let rank = 1;
-    let foundRank = false;
-
-    // Prune excess records so the database ONLY stores the highest 10
-    if (allDocsSnap.docs.length > MAX_LEADERBOARD_RECORDS) {
-      const docsToDelete = allDocsSnap.docs.slice(MAX_LEADERBOARD_RECORDS);
-      await Promise.all(
-        docsToDelete.map((docItem) => deleteDoc(doc(db, 'scores', docItem.id)))
-      );
-    }
-
-    // Determine the rank of the current score in the updated list
-    for (let i = 0; i < Math.min(allDocsSnap.docs.length, MAX_LEADERBOARD_RECORDS); i++) {
-      const data = allDocsSnap.docs[i].data();
-      if (!foundRank && data.name === clean && data.score === score) {
-        rank = i + 1;
-        foundRank = true;
+    let position: number | undefined;
+    if (index >= 0) {
+      position = index + 1;
+    } else {
+      try {
+        const above = await getCountFromServer(query(scoresRef, where('score', '>', score)));
+        position = above.data().count + 1;
+      } catch (error) {
+        console.warn('[Firestore] Could not count the scores above this one:', error);
       }
     }
 
     return {
       success: true,
-      rank: foundRank ? rank : undefined,
-      isTop10: rank <= MAX_LEADERBOARD_RECORDS,
+      id: added.id,
+      rank: index >= 0 ? index + 1 : undefined,
+      position,
+      isTop10: index >= 0,
     };
   } catch (error) {
-    console.error('Error saving score to Firestore:', error);
-    try {
-      handleFirestoreError(error, OperationType.CREATE, 'scores');
-    } catch {
-      // Return structured response
-    }
+    console.error('[Firestore] Could not save score:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Database error',
     };
   }
-}
-
-/** Backwards-compatible synchronous addScore */
-export function addScore(name: string, score: number): boolean {
-  saveLocalScore(name, score);
-  // Fire and forget save to Firestore
-  saveScoreToFirestore(name, score).catch((e) => console.error('Background save failed:', e));
-  return true;
 }
 
 export function clearScoreDataset(): void {
