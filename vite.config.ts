@@ -5,6 +5,10 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
+    // Where the site is served from. Locally that is the root; the GitHub Pages build
+    // sets PAGES_BASE to the repo's subpath (/GlobeOnline/), so every script and asset
+    // URL in the build points there instead of at the domain root.
+    base: process.env.PAGES_BASE || '/',
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
