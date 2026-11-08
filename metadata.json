@@ -1,0 +1,6 @@
+{
+  "name": "Low-Poly 3D Earth Globe",
+  "description": "A stylized, colorful, low-poly interactive 3D Earth featuring country borders and smooth touch and mouse rotation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
