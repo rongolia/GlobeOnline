@@ -284,13 +284,22 @@
   }
 }
 
-/* Country flag emoji. Noto Color Emoji is listed first so Windows picks up real flags
-   (see the font link in index.html); the platform fonts after it cover macOS, iOS and
-   Android, which have flags built in and will never fetch the webfont. line-height is
-   pinned because an emoji glyph otherwise sets a taller line box than the text it sits
-   beside, pushing the country name off centre. */
+/* Country flag (and symbol) emoji.
+
+   Apple Color Emoji comes FIRST. iPhones, iPads and Macs have it built in, flags and
+   all, so they draw with it and never fetch the webfont. With the webfont first they
+   did fetch it - Google serves Safari an SVG-glyph build of Noto Color Emoji - and on
+   iPad the flags and symbols came out blank.
+
+   Noto Color Emoji is next, for Windows: Segoe UI Emoji has no flags (it shows two
+   letters instead), so Windows needs the webfont from the link in index.html, and it
+   has no Apple font to stop at first. Segoe stays as the last resort for everything
+   else.
+
+   line-height is pinned because an emoji glyph otherwise sets a taller line box than the
+   text it sits beside, pushing the country name off centre. */
 .flag-emoji {
-  font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
+  font-family: 'Apple Color Emoji', 'Noto Color Emoji', 'Segoe UI Emoji', sans-serif;
   line-height: 1;
 }
 
