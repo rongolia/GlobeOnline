@@ -1,30 +1,43 @@
 @import "tailwindcss";
 
 /* Centre-screen "DevFest happens here at …" message shown when a parachute lands. */
-@keyframes landing-pop {
+/* Split into a fixed-length pop in and fade out, with the hold in between taking up
+   whatever is left of --landing-ms. A message that stays up longer (a find, with its fun
+   fact) only holds longer - it arrives and leaves exactly as fast as a short one. The
+   UI sets --landing-ms inline to the message's full time on screen. */
+@keyframes landing-pop-in {
   0% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.85);
   }
-  12% {
+  60% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1.04);
   }
-  20% {
-    transform: translate(-50%, -50%) scale(1);
-  }
-  80% {
+  100% {
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
   }
-  100% {
+}
+
+@keyframes landing-pop-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
     opacity: 0;
     transform: translate(-50%, -58%) scale(1);
   }
 }
 
 .landing-pop {
-  animation: landing-pop 2.4s ease-out forwards;
+  --landing-ms: 2.4s;
+  /* The out animation has no backwards fill, so until its delay is up it applies nothing
+     and the in animation's end state holds the message in place. */
+  animation:
+    landing-pop-in 0.48s ease-out both,
+    landing-pop-out 0.48s ease-out calc(var(--landing-ms) - 0.48s) forwards;
 }
 
 /* A miss, on top of the pop the wrapper is already running. Short and decaying, so it
@@ -198,17 +211,30 @@
   }
   100% {
     opacity: 0;
-    transform: translate(
-        calc(-50% - 50vw + var(--clue-land-x)),
-        calc(-50% + 50vh - var(--clue-land-y))
-      )
-      scale(0.3);
+    transform: translate(calc(-50% + var(--land-dx)), calc(-50% + var(--land-dy))) scale(var(--land-scale, 0.3));
   }
+}
+
+/* The bottom-left stack, as an offset from the screen centre the headline starts at. */
+.clue-headline {
+  --land-dx: calc(var(--clue-land-x) - 50vw);
+  --land-dy: calc(50vh - var(--clue-land-y));
+}
+
+/* End of the game: the final score takes the centre the same way a clue does, then is
+   sent up to the score panel in the top-right corner, which fades back in underneath it
+   (score-final-in) as it lands. The landing point is the middle of that panel's number
+   box: 0.75rem inset, plus the 2.5rem label, plus half the 3.5rem box. */
+.score-headline {
+  --land-dx: calc(50vw - 3.5rem);
+  --land-dy: calc(-50vh + 5rem);
+  --land-scale: 0.35;
 }
 
 /* Each clue card joins the stack as its headline fades. Only a newly mounted card runs
    this, so the clues already on screen sit still while the new one arrives. */
-.clue-card-in {
+.clue-card-in,
+.score-final-in {
   opacity: 0;
   animation: clue-card-in 0.42s cubic-bezier(0.22, 0.61, 0.36, 1) 2.1s forwards;
 }
@@ -241,7 +267,8 @@
     transform: none;
   }
 
-  .clue-card-in {
+  .clue-card-in,
+  .score-final-in {
     animation-delay: 0ms;
     animation-duration: 0.01ms;
   }
@@ -289,5 +316,91 @@
 @media (prefers-reduced-motion: reduce) {
   .difficulty-in {
     animation: none;
+  }
+}
+
+/* The "this way" arrow for a glowing target that is out of sight: pops in, then breathes
+   in time with the glow so the two read as one thing. */
+@keyframes target-offscreen-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes target-offscreen-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.12);
+  }
+}
+.target-offscreen {
+  animation:
+    target-offscreen-in 0.25s ease-out,
+    target-offscreen-pulse 0.8s ease-in-out 0.25s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .target-offscreen {
+    animation: none;
+  }
+}
+
+/* End of the game, in two stages. First the final score pops in at the centre and HOLDS
+   there while the leaderboard name is typed in under it. Once the name is in (or
+   skipped), it is sent up to the score panel - the same exit a clue makes, just started
+   on demand rather than on a timer. The landing point comes from .score-headline. */
+.score-headline-hold {
+  animation: score-headline-hold 0.45s ease-out forwards;
+}
+@keyframes score-headline-hold {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  55% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.score-headline-send {
+  animation: score-headline-send 0.55s cubic-bezier(0.45, 0, 0.75, 0.35) forwards;
+}
+@keyframes score-headline-send {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  75% {
+    opacity: 0.45;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--land-dx)), calc(-50% + var(--land-dy))) scale(var(--land-scale, 0.3));
+  }
+}
+
+/* The score panel is only mounted once the name is in, so it fades in as the headline
+   lands rather than on the clue cards' longer delay. */
+@media (prefers-reduced-motion: no-preference) {
+  .score-final-in {
+    animation-delay: 0.45s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .score-headline-hold,
+  .score-headline-send {
+    animation-duration: 0.01ms;
   }
 }

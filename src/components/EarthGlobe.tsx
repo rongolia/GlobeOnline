@@ -4,11 +4,13 @@ import {
   GameState,
   MAX_MISTAKES,
   LANDING_MESSAGE_MS,
+  FIND_MESSAGE_MS,
   GAME_BRIEF_VISIBLE_MS,
 } from '../scene/EarthScene';
 import { CountryInfo } from '../utils/geo';
 import { getCountryDescription, COUNTRY_GROUPS, DIFFICULTIES } from '../data/countries';
 import type { Difficulty } from '../data/countries';
+import { NAME_LENGTH, addScore, cleanName } from '../data/leaderboard';
 
 // Every panel hugs its corner at inset-3 (0.75rem). The inset is written out per corner
 // rather than shared as a margin, because a margin would fight the -translate-x-1/2 that
@@ -162,41 +164,28 @@ const LEVEL_POOLS: Record<Difficulty, string[]> = DIFFICULTIES.reduce((acc, diff
   return acc;
 }, {} as Record<Difficulty, string[]>);
 
-/** The same, as sets, for asking whether a country belongs to a mode's own level. */
-const LEVEL_POOL_SETS: Record<Difficulty, Set<string>> = DIFFICULTIES.reduce((acc, difficulty) => {
-  acc[difficulty] = new Set(LEVEL_POOLS[difficulty]);
-  return acc;
-}, {} as Record<Difficulty, Set<string>>);
-
 /** One step of the clue ladder. */
-type ClueRung = { kind: 'fact'; index: number } | { kind: 'flag' } | { kind: 'name' };
+type ClueRung ={ kind: 'symbol' } | { kind: 'fact'; index: number } | { kind: 'flag' } | { kind: 'name' };
 
 /**
- * The order a country's clues are uncovered in, hardest first.
+ * The order a country's clues are uncovered in, hardest first: the country's emblem
+ * emoji (a pizza, a maple leaf) for the few that have one, then the flag, then the
+ * well-known clue fact (funFacts[0]), then the name, which is the answer. Every miss
+ * uncovers one more rung. A country with no emblem simply starts at the flag.
  *
- * Facts are stored best-known first, so the ladder walks them backwards: the opening clue
- * is the most obscure one and every miss falls back to a better-known fact. The name is
- * always last, because it is the answer.
- *
- * Where the flag goes depends on the mode. On easy the countries are ones whose flag most
- * people can place, so it sits right before the name as a near-giveaway. From medium up
- * the flags get steadily less familiar - harder to place than the country's own
- * best-known fact - so the flag comes out one rung earlier and the easiest fact is held
- * back as the last clue before the answer.
- *
- * This works whatever the fact count. A country with a single fact gives a three-rung
- * ladder: fact, flag, name on easy; flag, fact, name from medium up.
+ * Only the first fact is ever a clue. The third is the reward, shown once the country
+ * is found (see REWARD_FACT_INDEX), so it never appears on the ladder; the second, the
+ * lesser-known one, is only on the info cards before and after the game.
  */
-function clueLadder(factCount: number, difficulty: Difficulty): ClueRung[] {
-  const facts: ClueRung[] = [];
-  for (let i = factCount - 1; i >= 0; i--) facts.push({ kind: 'fact', index: i });
-  const flag: ClueRung = { kind: 'flag' };
-  const clues =
-    difficulty === 'easy'
-      ? [...facts, flag]
-      : [...facts.slice(0, -1), flag, ...facts.slice(-1)];
-  return [...clues, { kind: 'name' }];
-}
+const CLUE_LADDER: ClueRung[] = [
+  { kind: 'symbol' },
+  { kind: 'flag' },
+  { kind: 'fact', index: 0 },
+  { kind: 'name' },
+];
+
+/** Which fun fact is held back as the reward for finding the country. */
+const REWARD_FACT_INDEX = 2;
 
 export const EarthGlobe: React.FC = () => {
   const mountRef = useRef<HTMLDivElement>(null);
@@ -220,10 +209,19 @@ export const EarthGlobe: React.FC = () => {
     results: {},
     difficulty: 'easy',
     attempt: 0,
+    lesserStart: false,
     score: 0,
   });
   // Informational round: country under the screen centre.
   const [focusCountry, setFocusCountry] = useState<CountryInfo | null>(null);
+  // While the target glows but is out of sight: the screen direction to turn towards, in
+  // radians (0 = right, PI/2 = up). null = in view, or not glowing.
+  const [targetOffscreen, setTargetOffscreen] = useState<number | null>(null);
+
+  // End of game: the leaderboard name being typed, and whether it has been entered (or
+  // skipped). Both start over with every game.
+  const [playerName, setPlayerName] = useState('');
+  const [nameEntered, setNameEntered] = useState(false);
 
   // Start pressed: the panel is showing the difficulty choices rather than Start.
   const [choosingDifficulty, setChoosingDifficulty] = useState(false);
@@ -236,8 +234,10 @@ export const EarthGlobe: React.FC = () => {
       target: string;
       landedOn: string;
       color: string;
-      points: number;
-      chanceRegained: boolean;
+      /** The reward fact, on a find; undefined on a miss or a country without one. */
+      reward?: string;
+      /** How long the message stays up (ms). */
+      durationMs: number;
     } | null
   >(null);
   const landingTimer = useRef<number | undefined>(undefined);
@@ -257,22 +257,25 @@ export const EarthGlobe: React.FC = () => {
     const scene = new EarthScene({
       container: mountRef.current,
       onBeaconHit: (country) => setBeaconCountry(country),
-      onRoundResult: ({ target, landedOn, correct, points, chanceRegained }) => {
+      onRoundResult: ({ target, landedOn, correct }) => {
         window.clearTimeout(landingTimer.current);
+        const targetInfo = getCountryDescription(target.name);
+        const durationMs = correct ? FIND_MESSAGE_MS : LANDING_MESSAGE_MS;
         setLanding({
           key: performance.now(),
           correct,
-          target: getCountryDescription(target.name)?.displayName ?? target.name,
+          target: targetInfo?.displayName ?? target.name,
+          // Finding the country pays out its other fun fact.
+          reward: correct ? targetInfo?.funFacts[REWARD_FACT_INDEX] : undefined,
+          durationMs,
           landedOn: landedOn
             ? (getCountryDescription(landedOn.name)?.displayName ?? landedOn.name)
             : 'the sea',
           // Both outcomes name a place, so both colour it the way the globe does. The
           // verdict itself is carried by the badge and the flash, not by this.
           color: correct ? target.color : (landedOn?.color ?? '#94a3b8'),
-          points,
-          chanceRegained,
         });
-        landingTimer.current = window.setTimeout(() => setLanding(null), LANDING_MESSAGE_MS);
+        landingTimer.current = window.setTimeout(() => setLanding(null), durationMs);
       },
       onGameStateChange: (state) => {
         setGame(state);
@@ -290,6 +293,7 @@ export const EarthGlobe: React.FC = () => {
       targetPools: TARGET_POOLS,
       postGamePools: LEVEL_POOLS,
       onFocusCountry: (country) => setFocusCountry(country),
+      onTargetOffscreen: (angle) => setTargetOffscreen(angle),
       onCountryHover: (country, screenPos) => {
         setHoveredCountry(country);
         setTooltipPos(screenPos);
@@ -330,22 +334,31 @@ export const EarthGlobe: React.FC = () => {
   // What the round has given away so far.
   //
   // Looked up in the whole dictionary rather than one group, so the ladder works for
-  // whichever group a round is drawn from. Its length follows the country's own facts:
-  // three of them give fact-fact-fact-flag-name, and a single one gives fact-flag-name.
+  // whichever group a round is drawn from. It is emblem (where there is one), flag,
+  // clue fact, name.
   //
   // Every miss repeats the country with one more rung of its ladder uncovered - see
-  // clueLadder() above for the order, which depends on the mode.
+  // CLUE_LADDER above.
   //
   // Reveal order and reading order are deliberately different. The cards are laid out the
-  // way the pre-game stack lays them out - flag and name in one box on top, then the facts
-  // best-known first - so a country reads the same whichever scene you meet it in. Only
+  // way the pre-game stack lays them out - flag and name in one box on top, then the
+  // emblem, then the facts best-known first - so a country reads the same whichever scene
+  // you meet it in. Only
   // which of them are on screen yet depends on how many attempts it has taken.
   const easyInfo = game.target ? getCountryDescription(game.target.name) : undefined;
   const clueFacts = easyInfo?.funFacts ?? [];
-  const ladder = easyInfo ? clueLadder(clueFacts.length, game.difficulty) : [];
+  // A few countries per game open one rung harder, on the lesser-known fact (see
+  // GameState.lesserStart), and then carry on down the usual ladder.
+  const fullLadder: ClueRung[] = game.lesserStart ? [{ kind: 'fact', index: 1 }, ...CLUE_LADDER] : CLUE_LADDER;
+  const ladder = easyInfo
+    ? fullLadder.filter((r) =>
+        r.kind === 'fact' ? r.index < clueFacts.length : r.kind === 'symbol' ? !!easyInfo.symbol : true
+      )
+    : [];
   const uncovered = ladder.slice(0, Math.max(0, Math.min(game.attempt, ladder.length)));
   const factShown = (i: number) => uncovered.some((r) => r.kind === 'fact' && r.index === i);
   const flagShown = uncovered.some((r) => r.kind === 'flag');
+  const symbolShown = uncovered.some((r) => r.kind === 'symbol');
   const nameShown = uncovered.some((r) => r.kind === 'name');
   // The rung that has just landed, which is what the headline announces.
   const newest = uncovered[uncovered.length - 1];
@@ -355,20 +368,30 @@ export const EarthGlobe: React.FC = () => {
       ? { kind: 'fact' as const, text: clueFacts[newest.index] }
       : newest.kind === 'flag'
         ? { kind: 'flag' as const, text: easyInfo.flag }
-        : { kind: 'name' as const, text: easyInfo.displayName };
+        : newest.kind === 'symbol' && easyInfo.symbol
+          ? { kind: 'symbol' as const, text: easyInfo.symbol.emoji, label: easyInfo.symbol.label }
+          : { kind: 'name' as const, text: easyInfo.displayName };
   const livesLeft = Math.max(0, game.maxMistakes - game.mistakes);
 
-  // Info cards: before game -> hovered country (full dataset);
-  // informational round -> country under the screen centre, only if it is a beacon country.
+  // Past the end of the ladder: the name was given away and the player still missed, so
+  // the country itself is lit up on the globe.
+  const glowTarget = game.phase === 'rounds' && ladder.length > 0 && game.attempt > ladder.length;
+  useEffect(() => {
+    sceneRef.current?.setTargetGlow(glowTarget);
+  }, [glowTarget, game.target]);
+
+  // A new game starts the name entry over, so it is ready and empty when this one ends.
+  useEffect(() => {
+    if (game.phase !== 'rounds') return;
+    setPlayerName('');
+    setNameEntered(false);
+  }, [game.phase]);
+
+  // Info cards: before game -> hovered country; post-game -> country under the screen
+  // centre. Both read the full dataset, so every country on the globe has its cards,
+  // whatever mode was played.
   const cardCountry = game.phase === 'idle' ? hoveredCountry : game.phase === 'learn' ? focusCountry : null;
-  // Before a game, every country on the globe has something to show. The post-game scene
-  // is about the mode's own level, so there it is limited to that group - the same set
-  // the beacons are built from.
-  const cardInfo = !cardCountry
-    ? undefined
-    : game.phase === 'learn' && !LEVEL_POOL_SETS[game.difficulty].has(cardCountry.name)
-      ? undefined
-      : getCountryDescription(cardCountry.name);
+  const cardInfo = cardCountry ? getCountryDescription(cardCountry.name) : undefined;
   const showCards = !!cardCountry && !!cardInfo;
   const cardFacts = cardInfo?.funFacts ?? [];
 
@@ -522,6 +545,16 @@ export const EarthGlobe: React.FC = () => {
               >
                 {newestClue.text}
               </span>
+            ) : newestClue.kind === 'symbol' ? (
+              // The emblem on its own, as big as the flag would be: the picture is the clue,
+              // so its name is left to the card it hands over to.
+              <span
+                className="flag-emoji block text-8xl md:text-9xl drop-shadow-[0_4px_18px_rgba(0,0,0,0.75)]"
+                role="img"
+                aria-label={`Clue: ${newestClue.label}`}
+              >
+                {newestClue.text}
+              </span>
             ) : (
               <div className="text-4xl md:text-6xl font-bold tracking-tight text-white drop-shadow-[0_4px_18px_rgba(0,0,0,0.75)]">
                 {newestClue.text}
@@ -555,6 +588,19 @@ export const EarthGlobe: React.FC = () => {
               </div>
             )}
 
+            {symbolShown && easyInfo?.symbol && (
+              <div key={`clue-symbol:${game.target.name}`} className="clue-card-in">
+                <InfoCard>
+                  <div className="flex items-center space-x-3">
+                    <span className="flag-emoji text-4xl shrink-0" role="img" aria-hidden="true">
+                      {easyInfo.symbol.emoji}
+                    </span>
+                    <span className="text-xl font-semibold text-slate-100">{easyInfo.symbol.label}</span>
+                  </div>
+                </InfoCard>
+              </div>
+            )}
+
             {clueFacts.map((fact, i) =>
               factShown(i) ? (
                 <div key={`clue-fact:${game.target!.name}:${i}`} className="clue-card-in">
@@ -566,6 +612,36 @@ export const EarthGlobe: React.FC = () => {
             )}
           </div>
         </>
+      )}
+
+      {/* The glowing target is round the back of the globe (or off the screen): an arrow
+          out towards the rim, on the side it lies, pointing the way to turn. It sits on
+          an ellipse around the centre so it reads as "over there, past the edge of the
+          globe", and the scene only reports it while the glow is on. */}
+      {game.phase === 'rounds' && targetOffscreen !== null && (
+        <div
+          className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-1/2 transition-[left,top] duration-150 ease-out"
+          style={{
+            left: `calc(50% + ${Math.cos(targetOffscreen) * 40}vw)`,
+            top: `calc(50% - ${Math.sin(targetOffscreen) * 38}vh)`,
+          }}
+          role="status"
+          aria-label="The country is round the side of the globe"
+        >
+          <div className="target-offscreen flex flex-col items-center gap-1">
+            <div
+              className="w-12 h-12 rounded-full bg-amber-300/90 ring-4 ring-amber-200/40 flex items-center justify-center text-slate-950 shadow-[0_0_18px_rgba(255,224,138,0.8)]"
+              style={{ transform: `rotate(${-targetOffscreen}rad)` }}
+            >
+              <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6" />
+              </svg>
+            </div>
+            <span className="text-xs font-semibold uppercase tracking-widest text-amber-200 drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)] whitespace-nowrap">
+              This way
+            </span>
+          </div>
+        </div>
       )}
 
       {/* Chances left, top centre. */}
@@ -588,9 +664,85 @@ export const EarthGlobe: React.FC = () => {
         </div>
       )}
 
-      {/* Score, top right. It stays up in the post-game scene as the final score. */}
-      {game.active && (
-        <div className="absolute top-3 right-3 flex flex-col items-end pointer-events-none">
+      {/* End of the game: the final score as big text at the centre. It holds there with
+          the leaderboard name field under it, and only once a name is in (or skipped) is
+          it sent up to the top-right panel, the same way a clue is sent to its card. */}
+      {game.active && game.phase === 'learn' && (
+        <div
+          className={`score-headline absolute top-1/2 left-1/2 z-40 text-center w-max ${
+            nameEntered ? 'score-headline-send pointer-events-none' : 'score-headline-hold'
+          }`}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <div className="text-2xl md:text-3xl uppercase tracking-widest font-semibold text-slate-200 drop-shadow-[0_3px_14px_rgba(0,0,0,0.8)]">
+            Final score
+          </div>
+          <div className="text-8xl md:text-9xl font-bold tabular-nums text-amber-300 drop-shadow-[0_4px_18px_rgba(0,0,0,0.75)]">
+            {game.score}
+          </div>
+
+          {!nameEntered && (
+            <form
+              className="mt-6 flex flex-col items-center gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (playerName.length !== NAME_LENGTH) return;
+                addScore(playerName, game.score);
+                setNameEntered(true);
+              }}
+            >
+              <label
+                htmlFor="leaderboard-name"
+                className="text-base md:text-lg font-semibold text-slate-200 drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)]"
+              >
+                Enter your initials for the leaderboard
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="leaderboard-name"
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={NAME_LENGTH}
+                  value={playerName}
+                  onChange={(e) =>
+                    setPlayerName(cleanName(e.target.value))
+                  }
+                  placeholder="AAA"
+                  aria-label="Three-letter name"
+                  className={`${SURFACE_DARK} w-40 h-14 text-center text-4xl font-bold tracking-[0.4em] pl-[0.4em] uppercase text-amber-300 placeholder:text-slate-600 outline-none focus:border-amber-300/80`}
+                />
+                <button
+                  type="submit"
+                  disabled={playerName.length !== NAME_LENGTH}
+                  className={`${PANEL_PILL} bg-amber-400/90 border-transparent hover:bg-amber-300 active:scale-95 transition duration-200 text-slate-950 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-amber-400/90 disabled:active:scale-100`}
+                >
+                  Save
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNameEntered(true)}
+                className="text-sm text-slate-400 hover:text-slate-200 underline underline-offset-4 cursor-pointer"
+              >
+                Skip
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
+      {/* Score, top right. It stays up in the post-game scene as the final score, and is
+          remounted then (the key) so it can fade back in as the headline above lands.
+          After a game it waits for the name to be entered, since that is what sends the
+          headline its way. */}
+      {game.active && (game.phase !== 'learn' || nameEntered) && (
+        <div
+          key={game.phase === 'learn' ? 'score-final' : 'score'}
+          className={`absolute top-3 right-3 flex flex-col items-end pointer-events-none ${
+            game.phase === 'learn' ? 'score-final-in' : ''
+          }`}
+        >
           <div className={PANEL_LABEL}>{game.phase === 'learn' ? 'Final score' : 'Score'}</div>
           <div
             className={`${SURFACE_DARK} px-5 h-14 flex items-center text-3xl font-semibold text-amber-300 tabular-nums whitespace-nowrap`}
@@ -663,6 +815,9 @@ export const EarthGlobe: React.FC = () => {
             key={landing.key}
             role="status"
             className="landing-pop absolute top-1/2 left-1/2 pointer-events-none z-40 text-center w-max max-w-[90vw] text-balance"
+            // A find stays up longer, to leave time to read its reward fact. Only the hold
+            // stretches: the pop in and fade out run at the same speed whatever the length.
+            style={{ '--landing-ms': `${landing.durationMs}ms` } as React.CSSProperties}
           >
             {/* The shake is on its own element: the wrapper's keyframes already own
                 `transform` for the pop, and one element cannot run both. */}
@@ -677,14 +832,17 @@ export const EarthGlobe: React.FC = () => {
                         them made good. */}
                     DevFest is coming to{' '}
                     <span style={{ color: landing.color }}>{landing.target}</span>
-                    <span className="block mt-3 text-2xl md:text-4xl text-emerald-300 tabular-nums">
-                      +{landing.points}
-                      {/* Only when a chance actually came back. Saying "+0 chances" on a
-                          clean run would turn a reward into noise. */}
-                      {landing.chanceRegained && (
-                        <span className="ml-4 text-amber-300">+1 chance</span>
-                      )}
-                    </span>
+                    {/* The reward: the fun fact that was held back from the clues. It is
+                        the payoff of the find, so it gets a lit panel of its own rather
+                        than sitting as a caption under the headline. */}
+                    {landing.reward && (
+                      <span className="block mx-auto mt-6 max-w-3xl rounded-2xl border-2 border-amber-300/70 bg-slate-950/80 px-6 py-5 md:px-8 md:py-6 shadow-[0_0_40px_rgba(252,211,77,0.35)] backdrop-blur-sm text-2xl md:text-4xl font-semibold leading-snug tracking-normal text-white">
+                        <span className="block mb-2 text-base md:text-xl font-bold uppercase tracking-widest text-amber-300">
+                          Did you know?
+                        </span>
+                        {landing.reward}
+                      </span>
+                    )}
                   </>
                 ) : (
                   // A refusal rather than a statement of fact: the player is told their

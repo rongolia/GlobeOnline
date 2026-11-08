@@ -1,4 +1,4 @@
-import type { CountryDescription } from './countries';
+import type { CountryDescription, CountrySymbol } from './countries';
 import { flagEmoji } from './flags';
 
 /**
@@ -7,23 +7,21 @@ import { flagEmoji } from './flags';
  * Same shape as the full dataset in ./countries.ts. Keys (`name`) match the map
  * data / CountryInfo.name.
  *
- * The three facts run from the best known to the most obscure: the first is something
- * most people could already tell you (the famous landmark, the food, the animal), the
- * second is a step past that, and the third is proper trivia. The tuple type fixes the
- * count at three, so the progression cannot be half-filled in by accident.
+ * The three facts run from the best known to the most obscure, and do different jobs.
+ * The first is the CLUE: something most people could already tell you (the famous
+ * landmark, the food, the animal), shown after the flag when the flag alone was not
+ * enough. The second is a step past that, shown on the info cards. The third is the
+ * REWARD: proper trivia, shown once the country has been found. The tuple type fixes the
+ * count at three, so none can be left out by accident.
  *
  * As in the full dataset, no fact names its own country.
  *
- * ONLY THE FIRST FACT MAY NAME A PLACE OR A LANDMARK. The game runs this ladder
- * backwards - it opens on the third fact and falls back towards the first - so a
- * landmark in the second or third gives the country away on the clue that was meant to
- * be the challenge. "Home to the Great Wall" is a fine first fact and a useless third
- * one. Keep the later two to things a country does, makes, or is like, with no named
- * mountain, river, city, building, region or neighbouring country in them.
+ * The clue may name a landmark - it comes after the flag, as the helpful hint. The
+ * reward is only ever shown once the answer is known, so it is free to be as obscure as
+ * it likes; it is the surprise that makes finding the country worth it.
  */
 
-// [map name, ISO numeric, display name, [well known, lesser known, trivia]]
-// Only the first of the three may name a place or landmark - see above.
+// [map name, ISO numeric, display name, [well known (clue), lesser known, trivia (reward)]]
 const ROWS: [string, string, string, [string, string, string]][] = [
   ['United States of America', '840', 'United States', [
     'Home to the Statue of Liberty and Hollywood.',
@@ -77,6 +75,19 @@ const ROWS: [string, string, string, [string, string, string]][] = [
   ]],
 ];
 
+/**
+ * Each country's emblem, where it has one - see CountryDescription.symbol for the bar it
+ * has to clear. Countries missing from here have no single symbol that clearly fits.
+ */
+const SYMBOLS: Record<string, CountrySymbol> = {
+  'United States of America': { emoji: '🗽', label: 'Statue of Liberty' },
+  'China': { emoji: '🐼', label: 'Giant panda' },
+  'Japan': { emoji: '🗻', label: 'Mount Fuji' },
+  'France': { emoji: '🥐', label: 'Croissant' },
+  'Italy': { emoji: '🍕', label: 'Pizza' },
+  'Australia': { emoji: '🦘', label: 'Kangaroo' },
+};
+
 export const EASY_COUNTRY_DESCRIPTIONS: CountryDescription[] = ROWS.map(
   ([name, isoNumeric, displayName, funFacts]) => ({
     name,
@@ -84,6 +95,7 @@ export const EASY_COUNTRY_DESCRIPTIONS: CountryDescription[] = ROWS.map(
     isoNumeric,
     flag: flagEmoji(isoNumeric),
     funFacts,
+    symbol: SYMBOLS[name],
   })
 );
 

@@ -7,7 +7,16 @@ const CANOPY_RADIUS = 0.75;
 const CANOPY_FLATTEN = 0.55; // vertical squash of the dome
 const CANOPY_BASE_Y = 1.1; // height of the canopy rim above the crate bottom
 const CANOPY_PANELS = 8;
-const CANOPY_COLORS = [0xff6f59, 0xf5f1e8]; // alternating panel colours
+// Panel colours, cycled around the canopy: the classic Google blue, red, yellow and
+// green, each split from the next by a white panel. Eight entries for the eight panels,
+// so every colour appears exactly once.
+const CANOPY_WHITE = 0xf5f1e8;
+const CANOPY_COLORS = [
+  0x4285f4, CANOPY_WHITE,
+  0xea4335, CANOPY_WHITE,
+  0xfbbc05, CANOPY_WHITE,
+  0x34a853, CANOPY_WHITE,
+];
 const CRATE_COLOR = 0xb07a45;
 const LINE_COLOR = 0xe8e8e8;
 

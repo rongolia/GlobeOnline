@@ -33,16 +33,28 @@ export interface CountryDescription {
   /** Flag emoji, or '' for the few territories with no ISO alpha-2 code. */
   flag: string;
   /**
-   * Fun facts, ordered from the best known to the most obscure: the first is the one
-   * most people could already tell you, the last is proper trivia. Each is shown as its
-   * own card, in this order. The easy, medium and hard groups give exactly three; the
-   * impossible group gives one, which simply makes for a shorter ladder of clues.
+   * Fun facts, best known first. The first is the CLUE: well known, shown after the flag
+   * when the flag alone was not enough. The easy, medium and hard groups give exactly
+   * three: the clue, a lesser-known fact, and the REWARD - proper trivia, shown once the
+   * country has been found. The impossible group gives one, the clue, and so has no
+   * reward.
    *
-   * None of them names the country itself, and only the FIRST may name a place or a
-   * landmark - the game shows them in reverse, so a landmark in the last one gives the
-   * answer away on the opening clue. Each group file repeats the rule in full.
+   * None of them names the country itself.
    */
   funFacts: string[];
+  /**
+   * The one thing the country is best known for, when that thing is both unmistakable
+   * and uncontroversial and has an emoji of its own: a pizza, a maple leaf, a kangaroo.
+   * Left out wherever no single symbol clearly fits, rather than stretched to cover it -
+   * a vague or shared symbol would mislead more than it helps. Not shown anywhere yet.
+   */
+  symbol?: CountrySymbol;
+}
+
+/** A country's emblem: its emoji and a short name for it (also the accessible label). */
+export interface CountrySymbol {
+  emoji: string;
+  label: string;
 }
 
 /** Which group a country belongs to. Each country is in exactly one. */

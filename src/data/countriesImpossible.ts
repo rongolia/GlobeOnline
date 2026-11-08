@@ -9,16 +9,14 @@ import { flagEmoji } from './flags';
  * their thirty. It exists so no country is a blank: hover one before a game and it still has a
  * name, a flag and something to say.
  *
- * ONE FACT EACH, deliberately. The other three groups carry three because the game walks
- * them backwards as a ladder of clues that gets easier with every miss. There is nothing
- * to ration here, and three good facts about every country on Earth would mean writing a
- * great many weak ones. Nothing had to change to allow it: the ladder is derived from the
- * length of funFacts, so one fact simply makes a shorter ladder - the fact, then the
- * flag, then the name.
+ * ONE FACT EACH, deliberately. The other three groups carry two: a well-known clue and
+ * a trivia reward for finding the country. Two good facts about every country on Earth
+ * would mean writing a great many weak ones, so here the one fact is the clue and there
+ * is simply no reward card. The ladder is the same - the flag, then the fact, then the
+ * name.
  *
- * The "only the first fact may name a place or a landmark" rule still holds, and is
- * simply vacuous here: the one fact IS the first. That matters - for most of these
- * countries a landmark is the only thing a player would have to go on.
+ * The clue is allowed to name a landmark, and for most of these countries a landmark is
+ * the only thing a player would have to go on.
  */
 
 // [map name, ISO numeric, display name, the one fact]

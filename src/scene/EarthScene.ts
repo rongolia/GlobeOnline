@@ -99,36 +99,52 @@ const DIRECTIONAL_POSITION: [number, number, number] = [-3, 4, 5];
 //               else costs one of MAX_MISTAKES chances and sets the same country again.
 //               The game ends - straight into the post-game scene - once every country
 //               has been found, or the chances run out.
-// Learn       : the post-game scene. Every easy country gets a static beacon on the
-//               globe, and a ray from the SCREEN CENTRE picks the country you rotate
+// Learn       : the post-game scene. Each country the player found has a static gold
+//               beacon on the globe - put up the moment it was found, during the game -
+//               and a ray from the SCREEN CENTRE picks the country you rotate
 //               under it. It has no time limit and never ends on its own: restart()
 //               takes it back to "before game".
 // Wrong answers allowed before the game ends.
 //
 // This is tied to the clue ladder in the UI: every miss repeats the country with an
-// easier clue, walking the easy set’s three facts from most obscure to best known, then
-// the flag, then the name. Five is what it takes to reach the end of that ladder, so
-// lowering it silently makes the last rungs unreachable.
+// easier clue - the lesser-known fact first for the few countries picked to start hard
+// (LESSER_FACT_STARTS), then the emblem emoji for the countries that have one, then the
+// flag, then the well-known fact, then the name. The longest ladder is five rungs, which
+// at five chances is only reached by a player who has not missed anything else yet.
 export const MAX_MISTAKES = 5;
 // Chances are spent on a miss and won back on a find, so this is a ceiling rather than a
 // budget: a player who keeps getting them right can go wrong again later. It is also the
 // number of dots the HUD draws, which is why a find can never push the count above it -
 // the extra chance would exist but have nowhere to show.
 // What finding a country is worth, by the attempt it was found on. Working it out from
-// the first, most obscure clue is worth the most; each miss drops the country to an
+// the flag alone is worth the most; each miss drops the country to an
 // easier clue and a smaller prize, down to the last rung where the name itself is on
 // screen. A wrong answer scores nothing at all. Indexed from attempt 1, and the last
 // entry covers any attempt beyond the table, so this can be re-balanced on its own.
-const POINTS_BY_ATTEMPT = [10, 6, 3, 2, 1];
+const POINTS_BY_ATTEMPT = [10, 5, 2];
 // Everything found on the first clue: the best score a full game can produce.
 export const MAX_SCORE_PER_COUNTRY = POINTS_BY_ATTEMPT[0];
+// How many of a game's countries, picked at random, open on the harder lesser-known fact
+// instead of the usual first clue, by mode. Infinity means every country. Impossible has
+// no lesser-known facts to open on.
+const LESSER_FACT_STARTS: Record<Difficulty, number> = {
+  easy: 3,
+  medium: 6,
+  hard: Infinity,
+  impossible: 0,
+};
 // How long the result message stays up after a parachute lands (ms). Must match the
 // .landing-pop animation in index.css. Exported so the UI and the pacing below share one
 // value instead of each keeping its own copy.
 export const LANDING_MESSAGE_MS = 2400;
+// A find stays up longer than a miss, because it pays out the country's reward fun fact
+// and that needs time to be read. The UI holds the same animation for this long; only
+// the hold grows, the pop in and fade out stay as quick as a miss's.
+export const FIND_MESSAGE_MS = 7000;
 // Pause between a parachute landing and the next beacon (ms). It waits out the result
 // message, so the player sees how the attempt went before the next one starts.
 const GAME_ROUND_DELAY_MS = LANDING_MESSAGE_MS;
+const GAME_FIND_DELAY_MS = FIND_MESSAGE_MS;
 // The briefing that opens a game: what the player is being asked to do. It has the
 // screen to itself for this long, then stays up through the count-in.
 const GAME_BRIEF_MS = 3600;
@@ -143,6 +159,15 @@ export const GAME_BRIEF_VISIBLE_MS = GAME_BRIEF_MS + GAME_COUNTDOWN_SECONDS * 10
 // Learning-round beacons (static, attached to the globe at each learn country's centre).
 const LEARN_BEACON_HEIGHT = 0.5; // above the ocean surface (globe units)
 const LEARN_BEACON_COLOR = 0xffd166;
+// Target glow (setTargetGlow): the last-resort highlight once even the name did not help.
+const TARGET_GLOW_COLOR = 0xffe08a;
+const TARGET_GLOW_EDGE_WIDTH = 6; // px
+const TARGET_GLOW_LIFT = 1.0015; // radius multiplier, so the fill sits just above the land
+// Links between found-country beacons, in the order they were found: a gold arc from
+// the top of each beacon to the next.
+const BEACON_LINK_WIDTH = 3; // px
+const BEACON_LINK_DRAW_MS = 900; // how long a new link takes to draw itself across
+const BEACON_LINK_LIFT = 0.35; // how far a half-way-round arc bows out above the beacon tops
 // Clicking within this many screen pixels of a learn beacon turns the globe to its country.
 const LEARN_BEACON_CLICK_PX = 18;
 // A press/release that moves less than this (px) counts as a click, not a drag.
@@ -183,6 +208,12 @@ export interface GameState {
   found: number;
   /** How many there were to find in all. */
   total: number;
+  /**
+   * True when the current country opens on its lesser-known fact (funFacts[1]) before
+   * the usual clue ladder - a harder start, given to a random few countries per game
+   * (see LESSER_FACT_STARTS).
+   */
+  lesserStart: boolean;
   /** Wrong answers so far. */
   mistakes: number;
   /** Wrong answers allowed before the game ends. */
@@ -238,11 +269,15 @@ const BEACON_RING_LIFT = 0.03;
 // Parachute dropped from the beacon on each cast.
 const PARACHUTE_SCALE = 0.1; // ~0.15 globe units tall
 const PARACHUTE_FALL_SPEED = 0.12; // globe units per second (beacon height 1.2 -> ~10 s)
-// Clicking a falling parachute multiplies its speed for the rest of the drop.
-const PARACHUTE_BOOST = 4;
+// Clicking a falling parachute multiplies its speed for the rest of the drop. At 10 even
+// a drop clicked straight away comes down in about a second.
+const PARACHUTE_BOOST = 10;
 // How close to the canopy a click has to land (screen px). Generous: the parachute is a
 // small, moving, swaying target.
 const PARACHUTE_CLICK_PX = 44;
+// Clicking within this many screen pixels of the beacon's impact ring (where the beam
+// meets the ground) drops the parachute too - it is the other obvious thing to press.
+const BEACON_RING_CLICK_PX = 40;
 const MAX_LANDED_PARACHUTES = 10; // oldest landed parachutes are removed beyond this
 // The beacon is placed at a random angle (degrees) away from the camera's view axis,
 // i.e. on the visible side, avoiding the centre (beam seen end-on) and the globe's edge.
@@ -300,6 +335,13 @@ export interface EarthSceneOptions {
   onBeaconHit?: (country: CountryInfo | null) => void;
   /** Game: called as an attempt's parachute lands, with how the attempt went. */
   onRoundResult?: (result: RoundResult) => void;
+  /**
+   * Called while the target glow is on and its country cannot be seen - round the back
+   * of the globe or off the edge of the screen - with the on-screen direction to turn
+   * towards, in radians (0 = right, PI/2 = up). Called with null once the country is in
+   * view again or the glow goes off.
+   */
+  onTargetOffscreen?: (angle: number | null) => void;
 }
 
 export class EarthScene {
@@ -401,14 +443,27 @@ export class EarthScene {
   private postGamePools: Partial<Record<Difficulty, string[]>> = {};
   // The mode in play, and the pool it drew. Both survive into the post-game scene.
   private difficulty: Difficulty = 'easy';
+  // This game's countries that open on the lesser-known fact (country indices).
+  private lesserStartTargets = new Set<number>();
   private activePool: string[] = []; // what this game asks for
   private activePostGamePool: string[] = []; // what it shows afterwards
   private learnBeacons: THREE.Mesh[] = [];
+  // Arcs joining the found-country beacons in find order, each drawing itself in from
+  // `startedAt` over BEACON_LINK_DRAW_MS.
+  private beaconLinks: { line: LineSegments2; segments: number; startedAt: number }[] = [];
+  // The target country's glow while it is on (see setTargetGlow).
+  private targetGlow: { fill: THREE.Mesh; edge: LineSegments2 } | null = null;
+  private glowCountryIndex = -1;
   // One entry per learn beacon: country index + globe-local top/bottom of its beam (for clicks).
   private learnBeaconHits: { countryIdx: number; top: THREE.Vector3; bottom: THREE.Vector3 }[] = [];
   private focusCountryIndex: number = -2; // -1 = ocean/none, -2 = not reported yet
   private screenCenter = new THREE.Vector2(0, 0);
   private onFocusCountry?: (country: CountryInfo | null) => void;
+  private onTargetOffscreen?: (angle: number | null) => void;
+  // Globe-local centre of the glowing country, and the last direction reported for it
+  // (null = in view / not reported), so the UI only hears about real changes.
+  private glowCenter: THREE.Vector3 | null = null;
+  private glowOffscreenAngle: number | null = null;
   private beaconBeam!: THREE.Mesh;
   private beaconSource!: THREE.Mesh;
   private beaconRing!: THREE.Mesh;
@@ -440,6 +495,7 @@ export class EarthScene {
     this.activePool = this.targetPools.easy ?? [];
     this.activePostGamePool = this.postGamePools.easy ?? [];
     this.onFocusCountry = options.onFocusCountry;
+    this.onTargetOffscreen = options.onTargetOffscreen;
 
     this.detectSoftwareGl();
     this.initScene();
@@ -712,8 +768,18 @@ export class EarthScene {
   private beginRounds(): void {
     this.targetQueue = this.shuffledTargets();
     this.targetsTotal = this.targetQueue.length;
+    // The queue is already in a random order, so a random pick of the countries is a
+    // second, independent shuffle of it cut to length - not simply the first few, which
+    // would always put the hard starts at the beginning of the game.
+    const picks = [...this.targetQueue];
+    for (let i = picks.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [picks[i], picks[j]] = [picks[j], picks[i]];
+    }
+    this.lesserStartTargets = new Set(picks.slice(0, LESSER_FACT_STARTS[this.difficulty] ?? 0));
     this.targetsFound = 0;
     this.countryResults.clear();
+    this.clearFoundBeacons();
     this.mistakes = 0;
     this.score = 0;
     this.targetIndex = -1;
@@ -808,6 +874,7 @@ export class EarthScene {
       difficulty: this.difficulty,
       target: this.targetIndex >= 0 ? this.countryInfoList[this.targetIndex] : null,
       attempt: this.targetAttempt,
+      lesserStart: this.targetIndex >= 0 && this.lesserStartTargets.has(this.targetIndex),
       results: this.buildResults(),
       found: this.targetsFound,
       total: this.targetsTotal,
@@ -821,15 +888,28 @@ export class EarthScene {
 
   // ---------- Learning round ----------
 
+  /**
+   * The post-game scene. Its beacons are already on the globe: one went up on each
+   * country as it was found (addFoundBeacon), so the scene shows exactly what the player
+   * found - nothing they missed or never reached.
+   */
   private startLearn(): void {
     this.learnActive = true;
     this.focusCountryIndex = -2;
-    this.buildLearnBeacons();
     this.reportGameState('learn');
   }
 
   private endLearn(): void {
     this.learnActive = false;
+    this.clearFoundBeacons();
+    this.renderer.domElement.style.cursor = '';
+    this.hideOutline();
+    this.focusCountryIndex = -2;
+    this.onFocusCountry?.(null);
+  }
+
+  /** Takes every found-country beacon off the globe. */
+  private clearFoundBeacons(): void {
     for (const b of this.learnBeacons) {
       b.removeFromParent();
       b.geometry.dispose();
@@ -837,27 +917,90 @@ export class EarthScene {
     }
     this.learnBeacons = [];
     this.learnBeaconHits = [];
-    this.renderer.domElement.style.cursor = '';
-    this.hideOutline();
-    this.focusCountryIndex = -2;
-    this.onFocusCountry?.(null);
+    for (const l of this.beaconLinks) {
+      l.line.removeFromParent();
+      l.line.geometry.dispose();
+      l.line.material.dispose();
+    }
+    this.beaconLinks = [];
   }
 
-  /** Static gold beacons (beam + orb) at the centre of each learn country, attached to the globe. */
-  private buildLearnBeacons(): void {
-    // Impossible plays the whole globe, so a beacon per country in the pool would be a
-    // beacon on everything - 177 pulsing beams, nearly all of them on countries the game
-    // never got round to asking for. The post-game scene is left bare instead: the
-    // centre crosshair still picks out whatever you turn under it.
-    if (this.difficulty === 'impossible') return;
+  /**
+   * A gold arc between the tops of two beacons (globe-local points at the same radius),
+   * along the great circle between them. It bows outward in proportion to how far apart
+   * the two are, so a long hop lifts clear of the globe rather than skimming it.
+   */
+  private addBeaconLink(from: THREE.Vector3, to: THREE.Vector3): void {
+    const radius = from.length();
+    const a = from.clone().normalize();
+    const b = to.clone().normalize();
+    const angle = a.angleTo(b);
+    if (angle < 1e-4) return;
+
+    const segments = Math.max(8, Math.ceil(angle * 48));
+    const pointAt = (t: number) => {
+      // Spherical interpolation between the two directions.
+      const s = Math.sin(angle);
+      const dir = a
+        .clone()
+        .multiplyScalar(Math.sin((1 - t) * angle) / s)
+        .addScaledVector(b, Math.sin(t * angle) / s);
+      const lift = BEACON_LINK_LIFT * (angle / Math.PI) * Math.sin(Math.PI * t);
+      return dir.multiplyScalar(radius + lift);
+    };
+    const pts: number[] = [];
+    let prev = pointAt(0);
+    for (let i = 1; i <= segments; i++) {
+      const next = pointAt(i / segments);
+      pts.push(prev.x, prev.y, prev.z, next.x, next.y, next.z);
+      prev = next;
+    }
+
+    const geo = new LineSegmentsGeometry();
+    geo.setPositions(pts);
+    geo.instanceCount = 0; // drawn in by updateBeaconLinks
+    const mat = new LineMaterial({
+      color: LEARN_BEACON_COLOR,
+      linewidth: BEACON_LINK_WIDTH,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    mat.resolution.copy(this.hoverOutlineMat.resolution);
+    const line = new LineSegments2(geo, mat);
+    line.renderOrder = 2;
+    this.earthGroup.add(line);
+    this.beaconLinks.push({ line, segments, startedAt: performance.now() });
+  }
+
+  /** Each frame: new links draw themselves across, and all of them breathe with the beacons. */
+  private updateBeaconLinks(now: number, pulse: number): void {
+    for (const l of this.beaconLinks) {
+      const t = Math.min(1, (now - l.startedAt) / BEACON_LINK_DRAW_MS);
+      const eased = 1 - Math.pow(1 - t, 3);
+      l.line.geometry.instanceCount = Math.round(eased * l.segments);
+      l.line.material.opacity = pulse;
+      l.line.material.resolution.copy(this.hoverOutlineMat.resolution);
+    }
+  }
+
+  /**
+   * A static gold beacon (beam + orb) at the centre of a found country, attached to the
+   * globe. It goes up the moment the country is found and stays for the rest of the
+   * game and through the post-game scene, where it can be clicked to turn to the country.
+   */
+  private addFoundBeacon(countryIdx: number): void {
+    if (this.learnBeaconHits.some((b) => b.countryIdx === countryIdx)) return;
+    if (!this.countryOutlines[countryIdx]?.length) return;
 
     this.earthGroup.updateMatrixWorld(true);
     const startRadius = GLOBE_RADIUS + LEARN_BEACON_HEIGHT;
     const centerWorld = this.earthGroup.getWorldPosition(new THREE.Vector3());
-    const wanted = new Set(this.activePostGamePool.map((n) => n.toLowerCase()));
 
-    for (const c of this.countryInfoList) {
-      if (!wanted.has(c.name.toLowerCase()) || !(this.countryOutlines[c.index]?.length)) continue;
+    {
+      const c = this.countryInfoList[countryIdx];
       const dir = this.countryCenter(c.index);
 
       // Surface height under the beacon (one-off raycast).
@@ -887,6 +1030,9 @@ export class EarthScene {
 
       this.earthGroup.add(beam, orb);
       this.learnBeacons.push(beam, orb);
+      // Join it to the country found before it, so the beacons trace the player's route.
+      const previous = this.learnBeaconHits[this.learnBeaconHits.length - 1];
+      if (previous) this.addBeaconLink(previous.top, dir.clone().multiplyScalar(startRadius));
       this.learnBeaconHits.push({
         countryIdx: c.index,
         top: dir.clone().multiplyScalar(startRadius),
@@ -897,11 +1043,13 @@ export class EarthScene {
 
   /** Each frame in the learn phase: centre-of-screen pick and beacon pulse. */
   private updateLearn(now: number): void {
-    if (!this.learnActive) return;
-
-    // The beacons keep breathing whatever the globe is doing.
+    // The found-country beacons keep breathing whatever the globe is doing, during the
+    // game as well as after it.
     const pulse = 0.7 + 0.3 * Math.sin(now * 0.005);
     for (const b of this.learnBeacons) (b.material as THREE.MeshBasicMaterial).opacity = pulse;
+    this.updateBeaconLinks(now, pulse);
+
+    if (!this.learnActive) return;
 
     // The pick below reads whatever is at the screen centre, so a moving globe sweeps a
     // stream of countries past it and the card would flicker through all of them. Report
@@ -956,6 +1104,7 @@ export class EarthScene {
     this.nextRoundAt = -1;
     this.cancelCountdown();
     this.clearBeacon();
+    this.clearTargetGlow();
     this.startLearn();
     // After startLearn(), so the beacons are already in place as the globe arrives: the
     // post-game scene opens by turning to the answer instead of wherever the last miss
@@ -985,6 +1134,7 @@ export class EarthScene {
     this.score = 0;
     this.mistakes = 0;
     this.clearBeacon();
+    this.clearTargetGlow();
     if (this.learnActive) this.endLearn();
 
     this.landedParachutes.forEach((lp) => lp.remove());
@@ -1225,6 +1375,9 @@ export class EarthScene {
     if (p && p.update(delta, now, groundRadius, PARACHUTE_FALL_SPEED * this.parachuteBoost)) {
       // Landed: attach to the globe (keeping its world pose) so it rides with the ground.
       this.earthGroup.attach(p.object);
+      // The beam has done its job once the parachute is down, so it goes at once and
+      // leaves the landed parachute on its own for the result.
+      this.beaconGroup.visible = false;
       this.landedParachutes.push(p);
       this.fallingParachute = null;
 
@@ -1243,6 +1396,7 @@ export class EarthScene {
           this.targetsFound++;
           this.score += points;
           this.countryResults.set(this.targetIndex, 'found');
+          this.addFoundBeacon(this.targetIndex);
           if (chanceRegained) this.mistakes--;
         } else {
           this.mistakes++;
@@ -1263,7 +1417,8 @@ export class EarthScene {
         });
         this.reportGameState('rounds');
         // Let the result message play out before the next beacon.
-        this.nextRoundAt = now + GAME_ROUND_DELAY_MS;
+        this.nextRoundAt = now + (correct ? GAME_FIND_DELAY_MS : GAME_ROUND_DELAY_MS);
+        this.freezeRotation();
       }
       while (this.landedParachutes.length > MAX_LANDED_PARACHUTES) {
         this.landedParachutes.shift()!.remove();
@@ -1319,6 +1474,150 @@ export class EarthScene {
     this.hoverOutline.visible = false;
   }
 
+  /**
+   * Makes the current target country glow - its own polygons lit up and a thick bright
+   * edge around them, both pulsing - so it stands out on the globe. The UI turns this on
+   * as a last resort, once even the name has been given away and the player still missed.
+   * Passing false (or a game state with no target) takes it off again.
+   */
+  public setTargetGlow(on: boolean): void {
+    const idx = on && this.gameActive ? this.targetIndex : -1;
+    if (idx === this.glowCountryIndex) return;
+    this.clearTargetGlow();
+    if (idx < 0) return;
+
+    // The country's own faces, copied out of the shared mesh and lifted a hair off it, so
+    // the glow sits on the land rather than z-fighting with it.
+    const src = this.countriesMesh.geometry;
+    const pos = src.getAttribute('position');
+    const index = src.getIndex();
+    const out: number[] = [];
+    const v = new THREE.Vector3();
+    for (let f = 0; f < this.triangleToCountryMap.length; f++) {
+      if (this.triangleToCountryMap[f] !== idx) continue;
+      for (let k = 0; k < 3; k++) {
+        const vi = index ? index.getX(f * 3 + k) : f * 3 + k;
+        v.fromBufferAttribute(pos, vi).multiplyScalar(TARGET_GLOW_LIFT);
+        out.push(v.x, v.y, v.z);
+      }
+    }
+    if (out.length === 0) return;
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(out, 3));
+    const fill = new THREE.Mesh(
+      geo,
+      new THREE.MeshBasicMaterial({
+        color: TARGET_GLOW_COLOR,
+        transparent: true,
+        opacity: 0.5,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      })
+    );
+    fill.renderOrder = 2;
+
+    // The edge: the same rings the hover outline uses, drawn much thicker.
+    const pts: number[] = [];
+    for (const ring of this.countryOutlines[idx] ?? []) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        const ta = landRadiusAt(a) + 0.004;
+        const tb = landRadiusAt(b) + 0.004;
+        pts.push(a.x * ta, a.y * ta, a.z * ta, b.x * tb, b.y * tb, b.z * tb);
+      }
+    }
+    const edgeGeo = new LineSegmentsGeometry();
+    edgeGeo.setPositions(pts);
+    const edgeMat = new LineMaterial({
+      color: TARGET_GLOW_COLOR,
+      linewidth: TARGET_GLOW_EDGE_WIDTH,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    edgeMat.resolution.copy(this.hoverOutlineMat.resolution);
+    const edge = new LineSegments2(edgeGeo, edgeMat);
+    edge.renderOrder = 2;
+
+    this.earthGroup.add(fill, edge);
+    this.targetGlow = { fill, edge };
+    this.glowCountryIndex = idx;
+    this.glowCenter = this.countryCenter(idx);
+  }
+
+  private clearTargetGlow(): void {
+    if (this.targetGlow) {
+      const { fill, edge } = this.targetGlow;
+      fill.removeFromParent();
+      fill.geometry.dispose();
+      (fill.material as THREE.Material).dispose();
+      edge.removeFromParent();
+      edge.geometry.dispose();
+      edge.material.dispose();
+    }
+    this.targetGlow = null;
+    this.glowCountryIndex = -1;
+    this.glowCenter = null;
+    this.reportTargetOffscreen(null);
+  }
+
+  /** Each frame: the target glow breathes, faster and brighter than the beacons. */
+  private updateTargetGlow(now: number): void {
+    if (!this.targetGlow) return;
+    const pulse = 0.5 + 0.5 * Math.sin(now * 0.008);
+    (this.targetGlow.fill.material as THREE.MeshBasicMaterial).opacity = 0.25 + 0.45 * pulse;
+    this.targetGlow.edge.material.opacity = 0.55 + 0.45 * pulse;
+    this.targetGlow.edge.material.resolution.copy(this.hoverOutlineMat.resolution);
+    this.updateTargetOffscreen();
+  }
+
+  /**
+   * Each frame while the glow is on: is its country out of sight, and if so which way?
+   *
+   * The camera sits on the +Z axis looking at the globe centre, so the country's centre,
+   * rotated with the globe, is behind the globe when it is past the visible horizon - the
+   * cap whose edge is where a line from the camera grazes the sphere - and its x/y is the
+   * direction it lies in on screen.
+   */
+  private updateTargetOffscreen(): void {
+    if (!this.glowCenter) return;
+    const dir = this.glowCenter.clone().applyEuler(this.earthGroup.rotation);
+    const camDist = this.camera.position.z;
+    // A margin past the true horizon, so a country only just peeking over the rim (and
+    // so barely visible) still counts as round the back.
+    const behind = dir.z < GLOBE_RADIUS / camDist + 0.15;
+    let offscreen = false;
+    if (!behind) {
+      const ndc = dir.clone().multiplyScalar(GLOBE_RADIUS).project(this.camera);
+      offscreen = Math.abs(ndc.x) > 0.95 || Math.abs(ndc.y) > 0.95;
+    }
+    if (!behind && !offscreen) {
+      this.reportTargetOffscreen(null);
+      return;
+    }
+    // Straight behind the globe has no direction of its own: point down by default.
+    const angle = Math.hypot(dir.x, dir.y) < 1e-3 ? -Math.PI / 2 : Math.atan2(dir.y, dir.x);
+    this.reportTargetOffscreen(angle);
+  }
+
+  /** Tells the UI, but only when the answer changes enough to move the arrow. */
+  private reportTargetOffscreen(angle: number | null): void {
+    const last = this.glowOffscreenAngle;
+    if (angle === null && last === null) return;
+    if (angle !== null && last !== null) {
+      let d = Math.abs(angle - last) % (Math.PI * 2);
+      if (d > Math.PI) d = Math.PI * 2 - d;
+      if (d < 0.02) return;
+    }
+    this.glowOffscreenAngle = angle;
+    this.onTargetOffscreen?.(angle);
+  }
+
   private setupEventListeners(): void {
     const el = this.renderer.domElement;
 
@@ -1346,6 +1645,7 @@ export class EarthScene {
 
   private onPointerDown = (e: PointerEvent): void => {
     if (this.pointerId !== null) return;
+    if (this.rotationLocked()) return; // nothing to grab or click until the next attempt
     this.autoSpinHoldUntil = 0; // a deliberate grab cancels a focus hold
     this.pointerId = e.pointerId;
     this.isDragging = true;
@@ -1374,12 +1674,16 @@ export class EarthScene {
     if (!this.isDragging) {
       // Pointer cursor over anything clickable, so the parachute reads as interactive.
       const overClickable =
-        (this.parachuteBoost === 1 && this.parachuteAt(e.clientX, e.clientY)) ||
+        (this.parachuteBoost === 1 && this.dropTargetAt(e.clientX, e.clientY)) ||
         (this.learnActive && this.learnBeaconAt(e.clientX, e.clientY) >= 0);
       this.renderer.domElement.style.cursor = overClickable ? 'pointer' : '';
     }
 
     if (!this.isDragging || e.pointerId !== this.pointerId) {
+      return;
+    }
+    if (this.rotationLocked()) {
+      this.freezeRotation();
       return;
     }
 
@@ -1527,23 +1831,18 @@ export class EarthScene {
   };
 
   /**
-   * "Before game": double-clicking a country turns the globe to it and holds it centred
-   * for FOCUS_HOLD_MS before the idle spin resumes. Double-clicking the ocean or empty
-   * space is ignored. A double-click during a game still resets to the default view.
+   * Double-clicking a country turns the globe to it and holds it centred for
+   * FOCUS_HOLD_MS (before the game, that is how long until the idle spin resumes).
+   * Double-clicking the ocean or empty space is ignored. It works before the game and in
+   * the post-game scene, and is switched off entirely while a game is running.
    */
   private onDoubleClick = (e: MouseEvent): void => {
-    if (!this.isPlaying()) {
-      const hit = this.pickCountryAt(this.clientToNdc(e.clientX, e.clientY));
-      if (hit) this.faceGlobeToward(this.countryCenter(hit.index));
-      return; // ocean / empty space: leave the globe where it is
-    }
-
-    // In game: reset to the default view (zoom is locked, so camera distance is left alone).
-    this.targetRotX = 0.28;
-    this.targetRotY = -1.2;
-    this.velocityX = 0;
-    this.velocityY = 0;
-    this.lastInteractionTime = performance.now();
+    // Off for the whole game, briefing to last landing: a double-click is two clicks,
+    // and turning the globe to a country there would hand the player the answer.
+    if (this.gameActive) return;
+    const hit = this.pickCountryAt(this.clientToNdc(e.clientX, e.clientY));
+    if (hit) this.faceGlobeToward(this.countryCenter(hit.index));
+    // Ocean / empty space: leave the globe where it is.
   };
 
   private onResize = (): void => {
@@ -1681,6 +1980,29 @@ export class EarthScene {
    * space rather than raycast against the mesh: the parachute is small and swaying, so a
    * pixel-exact test would be near impossible to hit.
    */
+  /**
+   * True if the point is on the beacon's impact ring while a parachute is still falling
+   * toward it. The ring only shows once the beam has reached the ground, and clicking it
+   * means the same as clicking the parachute: drop it here.
+   */
+  private beaconRingAt(clientX: number, clientY: number): boolean {
+    const p = this.fallingParachute;
+    if (!p || p.landed || !this.beaconGroup.visible || !this.beaconRing.visible) return false;
+
+    const ndc = this.beaconRing.getWorldPosition(this.parachuteScreenPos).project(this.camera);
+    if (ndc.z > 1) return false;
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const sx = ((ndc.x + 1) / 2) * rect.width + rect.left;
+    const sy = ((1 - ndc.y) / 2) * rect.height + rect.top;
+    return Math.hypot(clientX - sx, clientY - sy) <= BEACON_RING_CLICK_PX;
+  }
+
+  /** The parachute itself or the ring under it: either one drops the parachute. */
+  private dropTargetAt(clientX: number, clientY: number): boolean {
+    return this.parachuteAt(clientX, clientY) || this.beaconRingAt(clientX, clientY);
+  }
+
   private parachuteAt(clientX: number, clientY: number): boolean {
     const p = this.fallingParachute;
     if (!p || p.landed) return false;
@@ -1698,8 +2020,9 @@ export class EarthScene {
   private onClick(clientX: number, clientY: number): void {
     // Clicking the parachute drops it the rest of the way faster. One step, not a
     // stack: clicking again while it is already boosted does nothing.
-    if (this.parachuteBoost === 1 && this.parachuteAt(clientX, clientY)) {
+    if (this.parachuteBoost === 1 && this.dropTargetAt(clientX, clientY)) {
       this.parachuteBoost = PARACHUTE_BOOST;
+      this.freezeRotation();
       return;
     }
 
@@ -1802,6 +2125,39 @@ export class EarthScene {
     );
   }
 
+  /**
+   * True while the player may not turn the globe: from the moment they click the
+   * parachute to drop it, through the landing and the result message, until the next
+   * attempt starts. The drop is a commitment - the answer is whatever is under it now -
+   * and the reveal should be read on the country it landed on, not spun away from.
+   */
+  private rotationLocked(): boolean {
+    if (!this.gameActive) return false;
+    const manualDrop = this.fallingParachute !== null && this.parachuteBoost > 1;
+    return manualDrop || this.nextRoundAt >= 0;
+  }
+
+  /**
+   * Stops the globe exactly where it is: any drag in progress is let go of, and the glide
+   * and the damping toward a target still ahead are both dropped.
+   */
+  private freezeRotation(): void {
+    if (this.pointerId !== null) {
+      try {
+        this.renderer.domElement.releasePointerCapture(this.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    this.isDragging = false;
+    this.pointerId = null;
+    this.dragSamples.length = 0;
+    this.velocityX = 0;
+    this.velocityY = 0;
+    this.targetRotX = this.currentRotX;
+    this.targetRotY = this.currentRotY;
+  }
+
   private faceGlobeToward(dir: THREE.Vector3): void {
     // earthGroup uses Euler 'XYZ': world = Rx(rotX) * Ry(rotY) * local.
     // Ry brings dir into the YZ plane facing +Z; Rx then levels it to the view centre.
@@ -1847,8 +2203,9 @@ export class EarthScene {
       const delta = Math.min(0.1, (now - lastTime) / 1000);
       lastTime = now;
 
-      // Rotational physics & momentum
-      if (!this.isDragging) {
+      // Rotational physics & momentum (none at all while the globe is locked for a drop
+      // or a result)
+      if (!this.isDragging && !this.rotationLocked()) {
         if (
           Math.abs(this.velocityX) > ROTATION_STOP_VELOCITY ||
           Math.abs(this.velocityY) > ROTATION_STOP_VELOCITY
@@ -1889,6 +2246,7 @@ export class EarthScene {
       this.updateHover();
       this.updateBeacon(now, delta);
       this.updateLearn(now);
+      this.updateTargetGlow(now);
       this.updateGame(now);
 
       // Render scene
@@ -1941,6 +2299,8 @@ export class EarthScene {
     this.fallingParachute?.remove();
     this.landedParachutes.forEach((lp) => lp.remove());
     disposeParachuteAssets();
+    this.clearTargetGlow();
+    this.clearFoundBeacons();
     for (const m of [this.beaconBeam, this.beaconSource, this.beaconRing, ...this.poleRays, ...this.learnBeacons]) {
       if (!m) continue;
       m.geometry.dispose();

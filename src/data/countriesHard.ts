@@ -1,4 +1,4 @@
-import type { CountryDescription } from './countries';
+import type { CountryDescription, CountrySymbol } from './countries';
 import { flagEmoji } from './flags';
 
 /**
@@ -7,13 +7,10 @@ import { flagEmoji } from './flags';
  * Same shape and same rules as ./countriesEasy.ts, which is the reference for how a
  * group is built. In short:
  *
- * The three facts run from the best known to the most obscure. The tuple type fixes the
- * count at three. No fact names its own country.
- *
- * ONLY THE FIRST FACT MAY NAME A PLACE OR A LANDMARK. The game runs this ladder
- * backwards - it opens on the third fact and falls back towards the first - so a
- * landmark in the second or third gives the country away on the clue that was meant to
- * be the challenge. Keep the later two to things a country does, makes, or is like.
+ * Three facts, best known to most obscure: the first is the well-known CLUE, shown
+ * after the flag; the second is a lesser-known fact, shown on the info cards; the third
+ * is the trivia REWARD, shown once the country is found. The tuple type fixes the count
+ * at three. No fact names its own country.
  *
  * Hard means hard to NAME, not hard to hit. Every country here is still a large target
  * - all of them bigger than the smallest country in the easy set - and none sits far
@@ -21,8 +18,7 @@ import { flagEmoji } from './flags';
  * nobody can land on would just be a wasted life.
  */
 
-// [map name, ISO numeric, display name, [well known, lesser known, trivia]]
-// Only the first of the three may name a place or landmark - see above.
+// [map name, ISO numeric, display name, [well known (clue), lesser known, trivia (reward)]]
 const ROWS: [string, string, string, [string, string, string]][] = [
   ['Kazakhstan', '398', 'Kazakhstan', [
     'The largest country on Earth with no coast at all, mostly open grassland.',
@@ -76,6 +72,13 @@ const ROWS: [string, string, string, [string, string, string]][] = [
   ]],
 ];
 
+/**
+ * Each country's emblem, where it has one - see CountryDescription.symbol for the bar it
+ * has to clear. Countries missing from here have no single symbol that clearly fits.
+ */
+const SYMBOLS: Record<string, CountrySymbol> = {
+};
+
 export const HARD_COUNTRY_DESCRIPTIONS: CountryDescription[] = ROWS.map(
   ([name, isoNumeric, displayName, funFacts]) => ({
     name,
@@ -83,6 +86,7 @@ export const HARD_COUNTRY_DESCRIPTIONS: CountryDescription[] = ROWS.map(
     isoNumeric,
     flag: flagEmoji(isoNumeric),
     funFacts,
+    symbol: SYMBOLS[name],
   })
 );
 
